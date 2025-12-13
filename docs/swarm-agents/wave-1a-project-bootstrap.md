@@ -19,11 +19,11 @@ This foundational wave establishes the core Python project structure, dependency
 ### Acceptance Criteria
 - [ ] Python 3.11+ project initialized with modern pyproject.toml configuration
 - [ ] Project follows src-layout structure with swarm_agents package
-- [ ] All core dependencies (LangGraph, LangChain, Ollama) are installable via pip
+- [ ] All core dependencies (LangGraph, LangChain, Ollama) are installable via uv
 - [ ] Development dependencies (pytest, pytest-asyncio) are configured
 - [ ] Tests directory structure is in place with conftest.py
-- [ ] .gitignore properly configured for Python projects
-- [ ] Package is installable in editable mode: `pip install -e .`
+- [ ] .gitignore properly configured for Python projects (including .venv for uv)
+- [ ] Package is installable in editable mode: `uv pip install -e .`
 - [ ] Import verification test passes for all core dependencies
 
 ### Technical Implementation
@@ -347,22 +347,23 @@ git clone <repository-url>
 cd swarm
 ```
 
-2. Create and activate a virtual environment:
+2. Install uv (if not already installed):
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. Install the package in editable mode with development dependencies:
+3. Create virtual environment and install dependencies:
 ```bash
-pip install -e ".[dev]"
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install -e ".[dev]"
 ```
 
 ## Verification
 
 Run the test suite to verify installation:
 ```bash
-pytest tests/test_setup.py -v
+uv run pytest tests/test_setup.py -v
 ```
 
 All tests should pass, confirming that dependencies are correctly installed.
@@ -386,16 +387,16 @@ swarm/
 
 ### Running Tests
 ```bash
-pytest                     # Run all tests
-pytest -v                  # Verbose output
-pytest --cov              # With coverage report
+uv run pytest              # Run all tests
+uv run pytest -v           # Verbose output
+uv run pytest --cov        # With coverage report
 ```
 
 ### Code Quality
 ```bash
-black src/ tests/         # Format code
-ruff check src/ tests/    # Lint code
-mypy src/                 # Type check
+uv run black src/ tests/         # Format code
+uv run ruff check src/ tests/    # Lint code
+uv run mypy src/                 # Type check
 ```
 
 ## Next Steps
@@ -429,10 +430,10 @@ swarm/
 1. Create directory structure (if not exists)
 2. Write all configuration and source files
 3. Initialize git repository (if not initialized)
-4. Create virtual environment: `python -m venv venv`
-5. Activate virtual environment: `source venv/bin/activate`
-6. Install package in editable mode: `pip install -e ".[dev]"`
-7. Verify installation: `pytest tests/test_setup.py -v`
+4. Create virtual environment: `uv venv`
+5. Activate virtual environment: `source .venv/bin/activate`
+6. Install package in editable mode: `uv pip install -e ".[dev]"`
+7. Verify installation: `uv run pytest tests/test_setup.py -v`
 
 #### Testing Strategy
 
@@ -455,7 +456,7 @@ swarm/
 ## Success Criteria
 
 ### Functional Success
-- [ ] Project installs cleanly with `pip install -e ".[dev]"` without errors
+- [ ] Project installs cleanly with `uv pip install -e ".[dev]"` without errors
 - [ ] All 8 dependency verification tests pass
 - [ ] Package can be imported: `import swarm_agents` works in Python REPL
 - [ ] pytest discovers and runs tests successfully
@@ -469,7 +470,7 @@ swarm/
 - [ ] All files have proper docstrings and type hints where applicable
 
 ### Integration Success
-- [ ] Virtual environment creation succeeds on macOS/Linux/Windows
+- [ ] Virtual environment creation with `uv venv` succeeds on macOS/Linux/Windows
 - [ ] No dependency version conflicts during installation
 - [ ] Package metadata (version, author) is accessible programmatically
 - [ ] Test fixtures in conftest.py are discoverable by pytest
