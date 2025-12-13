@@ -242,23 +242,32 @@ class SchaltwerkClient:
         session_names: list[str],
         callback=None,
         check_states: Optional[list[str]] = None,
+        use_diff_detection: bool = True,
+        min_idle_time: int = 30,
     ) -> dict[str, SessionStatus]:
         """
         Wait for all sessions to complete or timeout.
 
+        Detection methods:
+        1. State-based: Wait for "reviewed" or "ready_to_merge" states
+        2. Diff-based (default): Wait for sessions to have diffs and be idle
+
         Args:
             session_names: List of session names to wait for
             callback: Optional callback(name, status) called when each completes
-            check_states: States considered "complete" (default: reviewed, completed)
+            check_states: States considered "complete" (default: reviewed)
+            use_diff_detection: If True, also detect completion via diffs + idle time
+            min_idle_time: Seconds a session must be idle to be considered complete
 
         Returns:
             Dict mapping session name to final status
         """
         if check_states is None:
-            check_states = ["reviewed", "completed", "ready_to_merge"]
+            check_states = ["reviewed", "ready_to_merge"]
 
         start_time = time.time()
         completed = {}
+        last_diff_check: dict[str, tuple[float, int]] = {}  # name -> (timestamp, file_count)
 
         while len(completed) < len(session_names):
             if time.time() - start_time > self.timeout:
@@ -270,12 +279,22 @@ class SchaltwerkClient:
                     continue
 
                 status = self.get_session_status(name)
-                if status:
-                    is_complete = (
-                        status.session_state in check_states
-                        or status.ready_to_merge
+                if not status:
+                    continue
+
+                # Method 1: Check for explicit completion states
+                if status.session_state in check_states or status.ready_to_merge:
+                    completed[name] = status
+                    if callback:
+                        callback(name, status)
+                    continue
+
+                # Method 2: Diff-based detection (agent finished if it has diffs and is idle)
+                if use_diff_detection and status.session_state == "running":
+                    is_done = self._check_session_idle(
+                        name, last_diff_check, min_idle_time
                     )
-                    if is_complete:
+                    if is_done:
                         completed[name] = status
                         if callback:
                             callback(name, status)
@@ -284,6 +303,58 @@ class SchaltwerkClient:
                 time.sleep(self.poll_interval)
 
         return completed
+
+    def _check_session_idle(
+        self,
+        session_name: str,
+        last_diff_check: dict[str, tuple[float, int]],
+        min_idle_time: int,
+    ) -> bool:
+        """
+        Check if a session has finished working by detecting idle state.
+
+        A session is considered idle/done if:
+        1. It has produced diffs (made changes)
+        2. The diff count hasn't changed for min_idle_time seconds
+
+        Returns True if session appears to be done.
+        """
+        try:
+            # Get current diff state
+            diff_summary = self.get_diff_summary(session_name)
+            files = []
+            if isinstance(diff_summary, dict):
+                files = diff_summary.get("files", []) or diff_summary.get("changes", [])
+
+            current_file_count = len(files)
+            current_time = time.time()
+
+            # If no diffs yet, not done
+            if current_file_count == 0:
+                last_diff_check[session_name] = (current_time, 0)
+                return False
+
+            # Check if diff count has stabilized
+            if session_name in last_diff_check:
+                last_time, last_count = last_diff_check[session_name]
+
+                if current_file_count == last_count:
+                    # Same number of files - check if idle long enough
+                    idle_time = current_time - last_time
+                    if idle_time >= min_idle_time:
+                        return True
+                else:
+                    # File count changed - reset timer
+                    last_diff_check[session_name] = (current_time, current_file_count)
+            else:
+                # First check - record baseline
+                last_diff_check[session_name] = (current_time, current_file_count)
+
+            return False
+
+        except Exception:
+            # On error, don't consider it done
+            return False
 
     # =========================================================================
     # Diff and Merge
