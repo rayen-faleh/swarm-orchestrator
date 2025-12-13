@@ -86,16 +86,30 @@ def sample_vote_result_no_consensus():
 @pytest.fixture
 def mock_schaltwerk_client():
     """A mock SchaltwerkClient for testing."""
+    from swarm_orchestrator.schaltwerk import SessionStatus
+
     client = MagicMock()
     client.create_spec.return_value = {"created": True}
     client.start_agent.return_value = {"started": True}
-    client.get_session_status.return_value = MagicMock(
+    client.get_session_status.return_value = SessionStatus(
         name="test-session",
         status="completed",
         session_state="completed",
         ready_to_merge=True,
+        branch="test-branch",
     )
     client.get_full_diff.return_value = "+def test(): pass"
     client.merge_session.return_value = {"merged": True}
     client.cancel_session.return_value = {"cancelled": True}
+    client.get_session_list.return_value = []
+    return client
+
+
+@pytest.fixture
+def mock_mcp_client():
+    """A mock MCPClient for testing."""
+    client = MagicMock()
+    client.call_tool.return_value = {}
+    client.start.return_value = None
+    client.stop.return_value = None
     return client
