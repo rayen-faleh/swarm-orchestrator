@@ -48,18 +48,17 @@ brew install --cask 2mawi2/tap/schaltwerk
 
 ### Quick Install (Recommended)
 
-For most users, install directly from PyPI:
+Swarm is a CLI tool that works with **any project** (Python, JavaScript, Go, Rust, etc.). Install it globally so it's available everywhere:
 
 ```bash
-# Using uv (fastest)
-uv pip install swarm-orchestrator
-
-# Using pip
-pip install swarm-orchestrator
-
-# Using pipx (isolated environment)
+# Using pipx (recommended - isolated global install)
 pipx install swarm-orchestrator
+
+# Or using uv tool (alternative)
+uv tool install swarm-orchestrator
 ```
+
+That's it! The `swarm` command is now available in any directory, no virtual environment activation needed.
 
 ### Verify Installation
 
@@ -70,11 +69,13 @@ swarm --help
 
 ### Installation Methods Comparison
 
-| Method | Best For | Isolation | Command |
-|--------|----------|-----------|---------|
-| `uv pip install` | Speed, daily use | Project venv | `uv pip install swarm-orchestrator` |
-| `pip install` | Standard Python | Project venv | `pip install swarm-orchestrator` |
-| `pipx install` | CLI tool users | Global isolated | `pipx install swarm-orchestrator` |
+| Method | Best For | Activation Needed? | Command |
+|--------|----------|-------------------|---------|
+| `pipx install` | **Any project** | No - always available | `pipx install swarm-orchestrator` |
+| `uv tool install` | **Any project** | No - always available | `uv tool install swarm-orchestrator` |
+| `pip install` | Python projects only | Yes - venv must be active | `pip install swarm-orchestrator` |
+
+> **Note for non-Python projects:** Use `pipx` or `uv tool install`. These install Swarm globally in an isolated environment, so you don't need Python in your project.
 
 ### Development Installation
 
@@ -85,7 +86,7 @@ For contributors or those who want to modify the source:
 git clone https://github.com/rayen-faleh/swarm-orchestrator.git
 cd swarm-orchestrator
 
-# 2. Create virtual environment (recommended)
+# 2. Create virtual environment
 uv venv
 source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
@@ -101,7 +102,8 @@ uv run pytest  # Run tests
 ### Troubleshooting Installation
 
 **"Command not found: swarm"**
-- Ensure your virtual environment is activated
+- If using `pipx`/`uv tool`: Ensure `~/.local/bin` is in your PATH
+- If using `pip`: Ensure your virtual environment is activated
 - Or use `python -m swarm_orchestrator.cli` instead
 
 **"No module named 'anthropic'"**
