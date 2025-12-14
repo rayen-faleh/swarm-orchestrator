@@ -373,21 +373,23 @@ class Orchestrator:
         return sessions
 
     def _wait_for_mcp_completion(self, task_id: str) -> None:
-        """Wait for all agents to signal completion via MCP."""
-        self.console.print("   ⏳ Waiting for agents to finish...")
+        """Wait for all agents to signal completion via MCP.
+
+        No timeout - agents can take as long as needed to implement their solutions.
+        """
+        self.console.print("   ⏳ Waiting for agents to finish (no timeout - agents work at their own pace)...")
 
         start_time = time.time()
         last_status = {}
+        last_heartbeat = time.time()
+        heartbeat_interval = 60  # Show status every 60 seconds
 
         while True:
-            if time.time() - start_time > self.timeout:
-                raise TimeoutError(f"Timeout waiting for task {task_id}")
-
             task = self.swarm_server.state.get_task(task_id)
             if not task:
                 raise ValueError(f"Task {task_id} not found")
 
-            # Report progress
+            # Report progress when agents finish
             for agent_id in task.agent_ids:
                 status = task.agent_statuses.get(agent_id)
                 if status and agent_id not in last_status:
@@ -395,22 +397,33 @@ class Orchestrator:
                     last_status[agent_id] = status
 
             if task.all_agents_finished():
-                self.console.print("      All agents finished!")
+                elapsed = int(time.time() - start_time)
+                self.console.print(f"      All agents finished! (took {elapsed}s)")
                 return
+
+            # Periodic heartbeat to show we're still waiting
+            if time.time() - last_heartbeat > heartbeat_interval:
+                elapsed = int(time.time() - start_time)
+                finished = len(last_status)
+                total = len(task.agent_ids)
+                self.console.print(f"      [dim]... still waiting ({finished}/{total} done, {elapsed}s elapsed)[/]")
+                last_heartbeat = time.time()
 
             time.sleep(self._poll_interval)
 
     def _wait_for_mcp_votes(self, task_id: str) -> dict:
-        """Wait for all agents to cast their votes via MCP."""
+        """Wait for all agents to cast their votes via MCP.
+
+        No timeout - agents need time to review all implementations before voting.
+        """
         self.console.print("   🗳️  Waiting for agents to vote...")
 
         start_time = time.time()
         last_votes = set()
+        last_heartbeat = time.time()
+        heartbeat_interval = 60  # Show status every 60 seconds
 
         while True:
-            if time.time() - start_time > self.timeout:
-                raise TimeoutError(f"Timeout waiting for votes on task {task_id}")
-
             task = self.swarm_server.state.get_task(task_id)
             if not task:
                 raise ValueError(f"Task {task_id} not found")
@@ -425,8 +438,17 @@ class Orchestrator:
                     last_votes.add(voter_id)
 
             if task.all_agents_voted():
-                self.console.print("      All votes are in!")
+                elapsed = int(time.time() - start_time)
+                self.console.print(f"      All votes are in! (took {elapsed}s)")
                 return self.swarm_server.state.get_vote_results(task_id)
+
+            # Periodic heartbeat to show we're still waiting
+            if time.time() - last_heartbeat > heartbeat_interval:
+                elapsed = int(time.time() - start_time)
+                voted = len(last_votes)
+                total = len(task.agent_ids)
+                self.console.print(f"      [dim]... still waiting for votes ({voted}/{total} voted, {elapsed}s elapsed)[/]")
+                last_heartbeat = time.time()
 
             time.sleep(self._poll_interval)
 

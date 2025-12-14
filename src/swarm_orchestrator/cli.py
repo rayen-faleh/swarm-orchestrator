@@ -76,8 +76,8 @@ def main():
 )
 @click.option(
     "--timeout", "-t",
-    default=600,
-    help="Timeout in seconds for agent completion (default: 600)",
+    default=120,
+    help="Timeout in seconds for decomposition step (default: 120). Agents have no timeout.",
 )
 def run(query: str, agents: int, timeout: int):
     """Run a task through the multi-agent consensus system."""
