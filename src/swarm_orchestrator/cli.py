@@ -99,12 +99,14 @@ def run(query: str, agents: int, timeout: int):
         # Final summary
         console.print("\n" + "━" * 50)
         if result.overall_success:
-            console.print("[bold green]✅ All tasks completed successfully![/]")
+            console.print("[bold green]✅ Consensus reached! Winner session ready for your review.[/]")
+            console.print("[dim]Review the changes above, then merge when satisfied.[/]")
         else:
-            failed = sum(1 for r in result.subtask_results if not r.merged)
+            no_consensus = sum(1 for r in result.subtask_results if not r.vote_result.consensus_reached)
             console.print(
-                f"[bold yellow]⚠️  {failed} subtask(s) need manual review[/]"
+                f"[bold yellow]⚠️  {no_consensus} subtask(s) had no clear consensus[/]"
             )
+            console.print("[dim]All sessions kept for manual review.[/]")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user[/]")

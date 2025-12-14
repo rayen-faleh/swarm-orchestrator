@@ -116,11 +116,22 @@ class TestOrchestrator:
         assert success is False
 
     def test_cleanup_sessions(self, orchestrator, mock_schaltwerk_client):
-        """Should cancel all provided sessions."""
+        """Should cancel all provided sessions by finding actual names from Schaltwerk."""
+        from swarm_orchestrator.schaltwerk import SessionStatus
+
+        # Mock get_session_list to return sessions with suffixes (like real Schaltwerk)
+        mock_schaltwerk_client.get_session_list.return_value = [
+            SessionStatus(name="agent-1-ab", status="running", session_state="running", ready_to_merge=False, branch="b1"),
+            SessionStatus(name="agent-2-cd", status="running", session_state="running", ready_to_merge=False, branch="b2"),
+        ]
+
         sessions = ["agent-1", "agent-2"]
         orchestrator._cleanup_sessions(sessions)
 
         assert mock_schaltwerk_client.cancel_session.call_count == 2
+        # Verify it used the actual names with suffixes
+        mock_schaltwerk_client.cancel_session.assert_any_call("agent-1-ab", force=True)
+        mock_schaltwerk_client.cancel_session.assert_any_call("agent-2-cd", force=True)
 
     def test_cleanup_empty_list(self, orchestrator, mock_schaltwerk_client):
         """Should handle empty session list."""

@@ -28,19 +28,71 @@
 
 ## Phase 1: Implementation
 
-### What to Do
-1. Read and understand the task
-2. Implement a complete, working solution
-3. Write clean, well-documented code
-4. **Commit your changes** with a descriptive message
+> **CRITICAL**: You MUST commit your changes before proceeding to Phase 2. The merge will FAIL if you have uncommitted changes.
+
+### Development Approach: Test-Driven Development (TDD)
+
+When applicable, follow TDD:
+1. **Write tests FIRST** - Define expected behavior before implementation
+2. **Run tests** - Verify they fail (red)
+3. **Implement** - Write minimal code to pass tests
+4. **Run tests again** - Verify they pass (green)
+5. **Refactor** - Clean up while keeping tests green
+
+### Implementation Steps
+
+1. **Understand the task** - Read requirements carefully
+2. **Write tests first** (when applicable) - Define expected behavior
+3. **Implement your solution** - Write clean, working code
+4. **Run tests** - Ensure everything passes
+5. **COMMIT your changes** - This is MANDATORY
+
+### Git Commit Requirements
+
+> ⚠️ **WARNING**: You MUST commit before calling `finished_work`. Uncommitted changes will cause merge failures.
+
+```bash
+# Stage your changes
+git add -A
+
+# Commit with a clear, descriptive message
+git commit -m "feat: <brief description of what you implemented>
+
+- <bullet point of key change 1>
+- <bullet point of key change 2>
+- <bullet point of key change 3>"
+```
+
+**Commit Message Guidelines**:
+- Use conventional commit format: `feat:`, `fix:`, `refactor:`, `test:`
+- First line: Brief summary (50 chars max)
+- Body: Bullet points explaining key changes
+- Be specific about WHAT changed and WHY
 
 ### Quality Checklist
-- [ ] Code compiles/runs without errors
-- [ ] Edge cases handled
-- [ ] Error handling included
-- [ ] Code is readable and maintainable
 
-**DO NOT** proceed to Phase 2 until your implementation is complete and committed.
+Before committing, verify:
+- [ ] All tests pass (run the test suite)
+- [ ] Code compiles/runs without errors
+- [ ] Edge cases are handled
+- [ ] Error handling is included
+- [ ] Code is readable and maintainable
+- [ ] Changes are committed (not just staged)
+
+### Verify Your Commit
+
+```bash
+# Check that changes are committed (should show nothing to commit)
+git status
+
+# Verify your commit exists
+git log -1 --oneline
+```
+
+**DO NOT** proceed to Phase 2 until:
+1. All tests pass
+2. Your changes are COMMITTED (not just staged)
+3. `git status` shows a clean working tree
 
 ---
 

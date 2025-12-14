@@ -25,7 +25,7 @@ Output ONLY valid JSON (no markdown, no explanation):
     {{
       "id": "task-1",
       "description": "Brief description of what to do",
-      "prompt": "Detailed prompt for Claude Code agent with specific instructions"
+      "prompt": "The task description - WHAT to do, not HOW"
     }}
   ]
 }}
@@ -34,8 +34,20 @@ Rules:
 - For ATOMIC tasks: Return exactly one subtask with the original task as the prompt
 - For COMPLEX tasks: Break into 2-5 independent subtasks
 - Each subtask should be completable independently
-- Prompts should be specific and actionable
 - IDs should be lowercase with hyphens (e.g., "add-auth", "fix-login")
+
+IMPORTANT - Prompt Guidelines:
+- The prompt should describe WHAT needs to be done, not HOW to do it
+- DO NOT include implementation suggestions, code snippets, or specific approaches
+- DO NOT prescribe which files to modify or what functions to create
+- Let the agents independently discover their own solutions
+- Keep prompts minimal and goal-focused
+
+Example of BAD prompt (too prescriptive):
+"Add a timeout parameter to the run function. Modify cli.py to accept --timeout flag, pass it to Orchestrator constructor, and update the Orchestrator class to use self.timeout in wait loops."
+
+Example of GOOD prompt (goal-focused):
+"The --timeout flag is being ignored. Fix the timeout functionality so it works as expected."
 
 TASK: {query}
 """

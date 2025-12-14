@@ -2,6 +2,7 @@
 
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.so
 *.egg-info/
@@ -26,3 +27,7 @@ htmlcov/
 
 # OS
 .DS_Store
+
+# Swarm state
+.swarm/state.json
+.swarm/*.lock

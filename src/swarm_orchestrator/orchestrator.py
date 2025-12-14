@@ -128,8 +128,8 @@ class Orchestrator:
             result = self._process_subtask_with_mcp(subtask)
             subtask_results.append(result)
 
-        # Determine overall success
-        overall_success = all(r.merged for r in subtask_results)
+        # Determine overall success based on consensus (not merge - user merges manually)
+        overall_success = all(r.vote_result.consensus_reached for r in subtask_results)
 
         return OrchestrationResult(
             query=query,
@@ -254,18 +254,50 @@ class Orchestrator:
             self.console.print(f"[red]      ✗ Merge failed: {e}[/]")
             return False
 
-    def _cleanup_sessions(self, sessions: list[str]) -> None:
-        """Cancel and clean up sessions."""
+    def _cleanup_sessions(self, sessions: list[str], keep_session: str | None = None) -> None:
+        """
+        Cancel and clean up sessions.
+
+        Fetches actual session names from Schaltwerk since it adds suffixes.
+
+        Args:
+            sessions: List of session name prefixes to clean up
+            keep_session: Optional session prefix to keep (the winner)
+        """
         if not sessions:
             return
 
         self.console.print("   🧹 Cleaning up...")
-        for session in sessions:
+
+        # Fetch actual session list from Schaltwerk
+        all_sessions = self.client.get_session_list()
+
+        for session_prefix in sessions:
+            # Skip if this is the winner we want to keep
+            if keep_session and session_prefix.startswith(keep_session):
+                continue
+
+            # Find the actual session name (Schaltwerk adds suffixes like -zd, -ft)
+            actual_session = None
+            for s in all_sessions:
+                # Match by prefix - the actual name starts with our requested name
+                if s.name.startswith(session_prefix):
+                    actual_session = s.name
+                    break
+
+            if not actual_session:
+                self.console.print(f"      ✓ {session_prefix} (already cleaned)")
+                continue
+
             try:
-                self.client.cancel_session(session, force=True)
-                self.console.print(f"      ✓ Cancelled {session}")
+                self.client.cancel_session(actual_session, force=True)
+                self.console.print(f"      ✓ Cancelled {actual_session}")
             except Exception as e:
-                self.console.print(f"[yellow]      ⚠ Could not cancel {session}: {e}[/]")
+                error_str = str(e).lower()
+                if "not found" in error_str:
+                    self.console.print(f"      ✓ {actual_session} (already cleaned)")
+                else:
+                    self.console.print(f"[yellow]      ⚠ Could not cancel {actual_session}: {e}[/]")
 
     # =========================================================================
     # MCP-based methods (new flow with agent-to-agent coordination)
@@ -307,19 +339,36 @@ class Orchestrator:
 
         sessions = []
         for agent_id in task.agent_ids:
-            session_name = task.session_names[agent_id]
+            requested_name = task.session_names[agent_id]
 
             # Generate prompt with MCP instructions
             prompt = self._generate_agent_prompt(subtask, task_id, agent_id)
 
             # Create spec with enhanced prompt
-            self.client.create_spec(session_name, prompt)
+            self.client.create_spec(requested_name, prompt)
 
-            # Start agent
-            self.client.start_agent(session_name, skip_permissions=True)
+            # Start agent - Schaltwerk may add a suffix to the name
+            result = self.client.start_agent(requested_name, skip_permissions=True)
 
-            sessions.append(session_name)
-            self.console.print(f"      ✓ {session_name} started (agent: {agent_id})")
+            # Get the actual session name from the result (Schaltwerk adds suffix)
+            actual_name = requested_name
+            if isinstance(result, dict):
+                # Try common response field names for the actual session name
+                actual_name = (
+                    result.get("session_name") or
+                    result.get("name") or
+                    result.get("session") or
+                    requested_name
+                )
+
+            # Update task's session_names mapping with actual name
+            task.session_names[agent_id] = actual_name
+
+            sessions.append(actual_name)
+            self.console.print(f"      ✓ {actual_name} started (agent: {agent_id})")
+
+        # Save updated session names to state
+        self.swarm_server.state._auto_save()
 
         return sessions
 
@@ -382,12 +431,22 @@ class Orchestrator:
             time.sleep(self._poll_interval)
 
     def _get_winner_session(self, task_id: str, winner_agent_id: str) -> str:
-        """Get the Schaltwerk session name for the winning agent."""
+        """Get the actual Schaltwerk session name for the winning agent."""
         task = self.swarm_server.state.get_task(task_id)
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
-        return task.session_names.get(winner_agent_id, winner_agent_id)
+        # Get the session name prefix we used
+        session_prefix = task.session_names.get(winner_agent_id, winner_agent_id)
+
+        # Find the actual session name from Schaltwerk (it adds suffixes)
+        all_sessions = self.client.get_session_list()
+        for s in all_sessions:
+            if s.name.startswith(session_prefix):
+                return s.name
+
+        # Fallback to prefix if not found
+        return session_prefix
 
     def _process_subtask_with_mcp(self, subtask: Subtask) -> SubtaskResult:
         """Process a subtask using the new MCP-based flow."""
@@ -429,16 +488,26 @@ class Orchestrator:
                     f"      {voter['voter']} → {voter['voted_for']}: {voter['reason'][:50]}..."
                 )
 
-            # Mark session as reviewed before merging
-            self.client.mark_reviewed(winner_session)
+            # Cleanup losing sessions, keep winner for user review
+            # Note: sessions contains prefixes, winner_session is the actual name with suffix
+            # Get the winner's prefix to filter it out
+            task = self.swarm_server.state.get_task(task_id)
+            winner_prefix = task.session_names.get(winner_agent_id, winner_agent_id) if task else winner_agent_id
+            losing_prefixes = [s for s in sessions if s != winner_prefix]
+            if losing_prefixes:
+                self.console.print("   🧹 Cleaning up losing agent sessions...")
+                self._cleanup_sessions(losing_prefixes)
 
-            # Merge winner
-            merged = self._merge_winner(winner_session, subtask)
-
-            # Cleanup losers
-            self._cleanup_sessions([s for s in sessions if s != winner_session])
+            # Don't merge automatically - let user review and merge
+            merged = False
+            self.console.print(f"\n   [bold cyan]📋 Winner ready for review:[/] {winner_session}")
+            self.console.print(f"   [dim]Review the changes, then merge manually when ready.[/]")
+            self.console.print(f"\n   [dim]To review:[/]  schaltwerk diff {winner_session}")
+            self.console.print(f"   [dim]To merge:[/]   schaltwerk merge {winner_session}")
+            self.console.print(f"   [dim]To cancel:[/]  schaltwerk cancel {winner_session}")
         else:
             self.console.print("[yellow]⚠️  No clear winner - manual review needed[/]")
+            self.console.print("   [dim]All sessions kept for manual review.[/]")
 
         # Create a compatible VoteResult for the return value
         from .voting import VoteGroup
@@ -454,11 +523,13 @@ class Orchestrator:
                     sessions=[session],
                 ))
 
+        # consensus_reached reflects if agents agreed, not if we merged
+        consensus_reached = winner_session is not None
         vote_result = VoteResult(
             groups=groups,
             winner=groups[0] if winner_session and groups else None,
             total_votes=self.agent_count,
-            consensus_reached=merged,
+            consensus_reached=consensus_reached,
             confidence=vote_results.get("vote_counts", {}).get(
                 vote_results.get("winner", ""), 0
             ) / self.agent_count if vote_results.get("winner") else 0,
