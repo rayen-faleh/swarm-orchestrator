@@ -48,6 +48,12 @@ class TestOrchestrator:
             assert orch.agent_count == 5
             assert orch.timeout == 300
 
+    def test_timeout_propagated_to_client(self):
+        """Should pass timeout to the Schaltwerk client."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            Orchestrator(timeout=120)
+            mock_get_client.assert_called_once_with(timeout=120)
+
     def test_spawn_agents_creates_correct_number(
         self, orchestrator, sample_subtask, mock_schaltwerk_client
     ):

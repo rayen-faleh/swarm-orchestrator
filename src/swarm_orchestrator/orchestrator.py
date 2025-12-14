@@ -101,7 +101,7 @@ class Orchestrator:
         self.agent_count = agent_count
         self.timeout = timeout
         self.console = console or Console()
-        self.client = get_client()
+        self.client = get_client(timeout=timeout)
         self.swarm_server = SwarmMCPServer(persistence_path=state_file)
         self._poll_interval = 5  # seconds between completion checks
 

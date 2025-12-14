@@ -482,7 +482,11 @@ def get_client(
     poll_interval: int = 10,
     timeout: int = 600,
 ) -> SchaltwerkClient:
-    """Get or create the Schaltwerk client singleton."""
+    """Get or create the Schaltwerk client singleton.
+
+    If a client already exists, updates its timeout value to match
+    the provided parameter.
+    """
     global _client
     if _client is None:
         _client = SchaltwerkClient(
@@ -490,6 +494,9 @@ def get_client(
             poll_interval=poll_interval,
             timeout=timeout,
         )
+    else:
+        # Update timeout on existing client if it differs
+        _client.timeout = timeout
     return _client
 
 

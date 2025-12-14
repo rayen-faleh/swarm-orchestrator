@@ -248,3 +248,22 @@ class TestSchaltwerkClientSingleton:
             # Getting client again should create new instance
             get_client()
             assert mock_class.call_count == 2
+
+    def test_get_client_updates_timeout_on_existing(self):
+        """Should update timeout on existing client when called with different value."""
+        with patch("swarm_orchestrator.schaltwerk.SchaltwerkClient") as mock_class:
+            mock_instance = MagicMock()
+            mock_instance.timeout = 600  # Default timeout
+            mock_class.return_value = mock_instance
+
+            # Create client with default timeout
+            client1 = get_client(timeout=600)
+            assert client1.timeout == 600
+
+            # Get client again with different timeout
+            client2 = get_client(timeout=120)
+
+            # Should be the same instance but with updated timeout
+            assert client1 is client2
+            assert client2.timeout == 120
+            mock_class.assert_called_once()  # Only created once
