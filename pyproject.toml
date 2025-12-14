@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "swarm-orchestrator"
-version = "0.1.0"
+version = "0.1.1"
 description = "Multi-agent consensus system using Schaltwerk + Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
