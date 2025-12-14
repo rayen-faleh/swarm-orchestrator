@@ -9,6 +9,36 @@ description = "Multi-agent consensus system using Schaltwerk + Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
+authors = [
+    {name = "Swarm Orchestrator Contributors"},
+]
+maintainers = [
+    {name = "Swarm Orchestrator Contributors"},
+]
+keywords = [
+    "ai",
+    "agents",
+    "multi-agent",
+    "consensus",
+    "claude",
+    "schaltwerk",
+    "orchestrator",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 
 dependencies = [
     "anthropic>=0.40.0",
@@ -22,6 +52,13 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "ruff>=0.6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/anthropics/swarm-orchestrator"
+Documentation = "https://github.com/anthropics/swarm-orchestrator#readme"
+Repository = "https://github.com/anthropics/swarm-orchestrator"
+Issues = "https://github.com/anthropics/swarm-orchestrator/issues"
+Changelog = "https://github.com/anthropics/swarm-orchestrator/blob/main/CHANGELOG.md"
 
 [project.scripts]
 swarm = "swarm_orchestrator.cli:main"
