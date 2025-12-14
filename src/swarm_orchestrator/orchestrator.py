@@ -140,7 +140,7 @@ class Orchestrator:
 
     def _decompose(self, query: str) -> DecompositionResult:
         """Decompose the query into subtasks."""
-        return decompose_task(query)
+        return decompose_task(query, timeout=self.timeout)
 
     def _process_subtask(self, subtask: Subtask) -> SubtaskResult:
         """Process a single subtask through agents and voting."""

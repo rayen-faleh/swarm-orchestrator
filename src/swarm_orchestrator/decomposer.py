@@ -84,7 +84,7 @@ class Decomposer:
     No separate API key needed!
     """
 
-    def __init__(self, use_api: bool = False, model: Optional[str] = None):
+    def __init__(self, use_api: bool = False, model: Optional[str] = None, timeout: int = 120):
         """
         Initialize the decomposer.
 
@@ -92,9 +92,11 @@ class Decomposer:
             use_api: If True, use Anthropic API directly (requires ANTHROPIC_API_KEY).
                      If False (default), use claude CLI (uses your login).
             model: Model to use (only applies when use_api=True)
+            timeout: Timeout in seconds for Claude CLI calls (default: 120)
         """
         self.use_api = use_api
         self.model = model or "claude-sonnet-4-20250514"
+        self.timeout = timeout
         self._api_client = None
 
     def _get_api_client(self):
@@ -126,7 +128,7 @@ class Decomposer:
                 ["claude", "-p", prompt, "--output-format", "text"],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=self.timeout,
             )
 
             if result.returncode != 0:
@@ -141,7 +143,7 @@ class Decomposer:
                 "https://claude.ai/download"
             )
         except subprocess.TimeoutExpired:
-            raise DecomposerError("Claude CLI timed out after 60 seconds")
+            raise DecomposerError(f"Claude CLI timed out after {self.timeout} seconds")
 
     def _call_api(self, prompt: str) -> str:
         """Call Claude via the Anthropic API (requires API key)."""
@@ -186,7 +188,7 @@ class Decomposer:
         )
 
 
-def decompose_task(query: str, use_api: bool = False) -> DecompositionResult:
+def decompose_task(query: str, use_api: bool = False, timeout: int = 120) -> DecompositionResult:
     """
     Convenience function to decompose a task.
 
@@ -194,6 +196,7 @@ def decompose_task(query: str, use_api: bool = False) -> DecompositionResult:
         query: The task to decompose
         use_api: If True, use Anthropic API (requires ANTHROPIC_API_KEY).
                  If False (default), use claude CLI (uses your login).
+        timeout: Timeout in seconds for Claude CLI calls (default: 120)
     """
-    decomposer = Decomposer(use_api=use_api)
+    decomposer = Decomposer(use_api=use_api, timeout=timeout)
     return decomposer.decompose(query)
