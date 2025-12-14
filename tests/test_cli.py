@@ -11,6 +11,11 @@ from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 
 from swarm_orchestrator.cli import main, init
+from swarm_orchestrator.installation import (
+    InstallationContext,
+    InstallationType,
+    PythonProject,
+)
 
 
 class TestInitCommand:
@@ -57,10 +62,25 @@ class TestInitCommand:
             assert "schaltwerk" in config["mcpServers"]
             assert "swarm-orchestrator" in config["mcpServers"]
 
-    def test_init_config_has_correct_structure(self, runner, temp_project):
-        """Config should have correct command and args (uses uv for worktree support)."""
+    def test_init_config_uses_uv_for_local_python_project(self, runner, temp_project):
+        """Config uses uv run for local install in Python project."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["init"])
+            # Create a Python project marker
+            Path("pyproject.toml").write_text("[project]\nname = 'test'")
+
+            # Mock local install in Python project
+            def mock_detect(directory=None):
+                return InstallationContext(
+                    installation_type=InstallationType.LOCAL,
+                    python_project=PythonProject(
+                        root=Path.cwd().resolve(),
+                        has_pyproject_toml=True,
+                    ),
+                    swarm_location=Path.cwd() / ".venv",
+                )
+
+            with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
+                result = runner.invoke(main, ["init"])
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
@@ -71,6 +91,54 @@ class TestInitCommand:
             assert "--project" in server["args"]
             assert "-m" in server["args"]
             assert "swarm_orchestrator.swarm_mcp.server" in server["args"]
+
+    def test_init_config_uses_direct_command_for_global_install(self, runner, temp_project):
+        """Config uses direct swarm command for global (pipx/system) install."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Mock global install
+            def mock_detect(directory=None):
+                return InstallationContext(
+                    installation_type=InstallationType.PIPX,
+                    python_project=None,
+                    swarm_location=Path.home() / ".local" / "pipx" / "venvs" / "swarm",
+                )
+
+            with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
+                result = runner.invoke(main, ["init"])
+
+            config = json.loads(Path(".mcp.json").read_text())
+            server = config["mcpServers"]["swarm-orchestrator"]
+
+            # Uses direct swarm command
+            assert server["command"] == "swarm"
+            assert "server" in server["args"]
+            assert "--state-file" in server["args"]
+            # Should NOT have uv-specific args
+            assert "run" not in server["args"]
+            assert "--project" not in server["args"]
+
+    def test_init_config_uses_direct_command_for_non_python_project(self, runner, temp_project):
+        """Config uses direct swarm command for non-Python project."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # No pyproject.toml or other Python project markers
+
+            # Mock local install but NOT in Python project
+            def mock_detect(directory=None):
+                return InstallationContext(
+                    installation_type=InstallationType.LOCAL,
+                    python_project=None,  # Not a Python project
+                    swarm_location=Path.cwd() / ".venv",
+                )
+
+            with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
+                result = runner.invoke(main, ["init"])
+
+            config = json.loads(Path(".mcp.json").read_text())
+            server = config["mcpServers"]["swarm-orchestrator"]
+
+            # Uses direct swarm command (not uv)
+            assert server["command"] == "swarm"
+            assert "server" in server["args"]
 
     def test_init_creates_state_directory(self, runner, temp_project):
         """Should create .swarm directory for state persistence."""
@@ -126,14 +194,23 @@ class TestInitCommand:
             }
             Path(".mcp.json").write_text(json.dumps(existing))
 
-            result = runner.invoke(main, ["init", "--force"])
+            # Mock global install so we expect swarm command
+            def mock_detect(directory=None):
+                return InstallationContext(
+                    installation_type=InstallationType.PIPX,
+                    python_project=None,
+                    swarm_location=Path.home() / ".local" / "pipx",
+                )
+
+            with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
+                result = runner.invoke(main, ["init", "--force"])
 
             assert result.exit_code == 0
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
-            # Should now use uv (not old-command)
-            assert server["command"] == "uv"
+            # Should now use swarm (not old-command)
+            assert server["command"] == "swarm"
 
     def test_init_shows_success_message(self, runner, temp_project):
         """Should show success message with instructions."""

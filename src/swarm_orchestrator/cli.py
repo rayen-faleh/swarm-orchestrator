@@ -13,6 +13,7 @@ from rich.panel import Panel
 from . import __version__
 from .orchestrator import Orchestrator
 from .decomposer import decompose_task
+from .installation import detect_installation_context
 
 
 console = Console()
@@ -39,21 +40,38 @@ def _get_swarm_mcp_config(repo_root: Path) -> dict:
 
     This ensures all agents (in worktrees) can access the same state file
     and use the same Python environment.
+
+    The config format depends on installation type:
+    - Local install in Python project: Uses uv run --project for venv support
+    - Global install (pipx/system) or non-Python project: Uses direct swarm command
     """
     # Use absolute path to state file in main repo
     state_file = str(repo_root / ".swarm" / "state.json")
 
-    # Use uv to run the server from the main repo's environment
-    # This ensures the swarm_orchestrator package is available
+    # Detect installation context
+    ctx = detect_installation_context(repo_root)
+
+    # Use uv-based approach only for local installs in Python projects
+    if ctx.is_local_install and ctx.in_python_project:
+        return {
+            "command": "uv",
+            "args": [
+                "run",
+                "--project",
+                str(repo_root),
+                "python",
+                "-m",
+                "swarm_orchestrator.swarm_mcp.server",
+                "--state-file",
+                state_file,
+            ],
+        }
+
+    # Global install or non-Python project: use direct swarm command
     return {
-        "command": "uv",
+        "command": "swarm",
         "args": [
-            "run",
-            "--project",
-            str(repo_root),
-            "python",
-            "-m",
-            "swarm_orchestrator.swarm_mcp.server",
+            "server",
             "--state-file",
             state_file,
         ],
