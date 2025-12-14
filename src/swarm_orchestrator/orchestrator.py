@@ -97,6 +97,7 @@ class Orchestrator:
         timeout: int = 600,
         console: Console | None = None,
         state_file: str = ".swarm/state.json",
+        auto_merge: bool = False,
     ):
         self.agent_count = agent_count
         self.timeout = timeout
@@ -104,6 +105,7 @@ class Orchestrator:
         self.client = get_client(timeout=timeout)
         self.swarm_server = SwarmMCPServer(persistence_path=state_file)
         self._poll_interval = 5  # seconds between completion checks
+        self.auto_merge = auto_merge
 
     def run(self, query: str) -> OrchestrationResult:
         """Execute the full orchestration workflow."""
@@ -582,7 +584,7 @@ class Orchestrator:
                     f"      {voter['voter']} → {voter['voted_for']}: {voter['reason'][:50]}..."
                 )
 
-            # Cleanup losing sessions, keep winner for user review
+            # Cleanup losing sessions, keep winner for review/merge
             # Note: sessions contains prefixes, winner_session is the actual name with suffix
             # Get the winner's prefix to filter it out
             task = self.swarm_server.state.get_task(task_id)
@@ -592,13 +594,21 @@ class Orchestrator:
                 self.console.print("   🧹 Cleaning up losing agent sessions...")
                 self._cleanup_sessions(losing_prefixes)
 
-            # Don't merge automatically - let user review and merge
-            merged = False
-            self.console.print(f"\n   [bold cyan]📋 Winner ready for review:[/] {winner_session}")
-            self.console.print(f"   [dim]Review the changes, then merge manually when ready.[/]")
-            self.console.print(f"\n   [dim]To review:[/]  schaltwerk diff {winner_session}")
-            self.console.print(f"   [dim]To merge:[/]   schaltwerk merge {winner_session}")
-            self.console.print(f"   [dim]To cancel:[/]  schaltwerk cancel {winner_session}")
+            # Auto-merge if flag is set, otherwise leave for manual review
+            if self.auto_merge:
+                self.console.print(f"\n   [bold cyan]🔀 Auto-merging winner:[/] {winner_session}")
+                merged = self._merge_winner(winner_session, subtask)
+                if merged:
+                    # Clean up winner session after successful merge
+                    self._cleanup_sessions([winner_session])
+                    self.console.print(f"   [green]✓ Successfully merged and cleaned up[/]")
+            else:
+                merged = False
+                self.console.print(f"\n   [bold cyan]📋 Winner ready for review:[/] {winner_session}")
+                self.console.print(f"   [dim]Review the changes, then merge manually when ready.[/]")
+                self.console.print(f"\n   [dim]To review:[/]  schaltwerk diff {winner_session}")
+                self.console.print(f"   [dim]To merge:[/]   schaltwerk merge {winner_session}")
+                self.console.print(f"   [dim]To cancel:[/]  schaltwerk cancel {winner_session}")
         else:
             self.console.print("[yellow]⚠️  No clear winner - manual review needed[/]")
             self.console.print("   [dim]All sessions kept for manual review.[/]")

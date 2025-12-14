@@ -79,7 +79,12 @@ def main():
     default=120,
     help="Timeout in seconds for decomposition step (default: 120). Agents have no timeout.",
 )
-def run(query: str, agents: int, timeout: int):
+@click.option(
+    "--auto-merge",
+    is_flag=True,
+    help="Automatically merge the winning solution after consensus is reached.",
+)
+def run(query: str, agents: int, timeout: int, auto_merge: bool):
     """Run a task through the multi-agent consensus system."""
     console.print(
         Panel.fit(
@@ -93,14 +98,23 @@ def run(query: str, agents: int, timeout: int):
             agent_count=agents,
             timeout=timeout,
             console=console,
+            auto_merge=auto_merge,
         )
         result = orchestrator.run(query)
 
         # Final summary
         console.print("\n" + "━" * 50)
         if result.overall_success:
-            console.print("[bold green]✅ Consensus reached! Winner session ready for your review.[/]")
-            console.print("[dim]Review the changes above, then merge when satisfied.[/]")
+            if auto_merge:
+                all_merged = all(r.merged for r in result.subtask_results)
+                if all_merged:
+                    console.print("[bold green]✅ Consensus reached and all winners merged![/]")
+                else:
+                    console.print("[bold yellow]✅ Consensus reached, but some merges failed.[/]")
+                    console.print("[dim]Check the output above for details.[/]")
+            else:
+                console.print("[bold green]✅ Consensus reached! Winner session ready for your review.[/]")
+                console.print("[dim]Review the changes above, then merge when satisfied.[/]")
         else:
             no_consensus = sum(1 for r in result.subtask_results if not r.vote_result.consensus_reached)
             console.print(
