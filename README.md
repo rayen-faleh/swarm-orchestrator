@@ -16,7 +16,9 @@ Before installing Swarm Orchestrator, ensure you have the following:
 |-------------|---------|-------------|
 | **Python** | 3.11+ | Python 3.11, 3.12, or 3.13 supported |
 | **Git** | Any recent | Swarm operates on git repositories |
-| **Anthropic API Key** | - | Set as `ANTHROPIC_API_KEY` environment variable |
+| **Claude Code Login** | - | Authenticated via `claude` CLI (Max/Pro subscription) |
+
+> **No API key needed!** Swarm uses the `claude` CLI for task decomposition, which authenticates using your existing Claude Code login. No need to manage separate API keys.
 
 ### External Dependencies
 
@@ -110,17 +112,9 @@ uv run pytest  # Run tests
 
 ## Quick Start
 
-Get up and running in 4 steps:
+Get up and running in 3 steps:
 
-### Step 1: Set Your API Key
-
-```bash
-export ANTHROPIC_API_KEY="your-api-key-here"
-```
-
-Add to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
-
-### Step 2: Initialize in Your Project
+### Step 1: Initialize in Your Project
 
 ```bash
 cd /path/to/your/project
@@ -131,11 +125,11 @@ This creates:
 - `.mcp.json` - MCP server configuration for Claude Code
 - `.swarm/` - Directory for task state persistence
 
-### Step 3: Restart Claude Code
+### Step 2: Restart Claude Code
 
 After initialization, **restart Claude Code** to load the new MCP server configuration.
 
-### Step 4: Run Your First Task
+### Step 3: Run Your First Task
 
 ```bash
 swarm run "Add a hello world function to main.py"
@@ -257,9 +251,21 @@ Each project has isolated configuration. The state file uses absolute paths, so:
 - Different projects don't interfere with each other
 - Agents in worktrees share the same state file within a project
 
-### Environment Variables
+### Authentication
 
-- `ANTHROPIC_API_KEY` - Required for task decomposition via Claude API
+Swarm Orchestrator uses the **Claude CLI** for task decomposition by default. This means:
+
+- ✅ **No API key required** - uses your existing Claude Code login
+- ✅ Works with Claude Max or Pro subscriptions
+- ✅ No per-token costs beyond your subscription
+
+**Optional:** If you prefer to use the Anthropic API directly (instead of Claude CLI), you can set:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+Then modify the decomposer call to use `use_api=True`. This is not required for normal operation.
 
 ## Development
 
