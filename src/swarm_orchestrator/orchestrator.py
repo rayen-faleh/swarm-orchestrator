@@ -122,10 +122,10 @@ class Orchestrator:
             for st in decomposition.subtasks:
                 self.console.print(f"      • {st.id}: {st.description}")
 
-        # Step 2-5: Process each subtask
+        # Step 2-5: Process each subtask using MCP-based coordination
         subtask_results = []
         for subtask in decomposition.subtasks:
-            result = self._process_subtask(subtask)
+            result = self._process_subtask_with_mcp(subtask)
             subtask_results.append(result)
 
         # Determine overall success
