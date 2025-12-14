@@ -2,6 +2,8 @@
 Main orchestrator that coordinates decomposition, agent spawning, and voting.
 """
 
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -11,6 +13,50 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .decomposer import Subtask, decompose_task, DecompositionResult
 from .schaltwerk import SchaltwerkClient, get_client
 from .voting import VoteResult, find_consensus, format_vote_summary
+from .swarm_mcp.server import SwarmMCPServer
+
+
+# Agent prompt template with MCP tool instructions
+# References the detailed instructions file which agents will read
+AGENT_PROMPT_TEMPLATE = """# Task
+
+{task_prompt}
+
+---
+
+# CRITICAL: Swarm Agent Coordination
+
+You are **Agent `{agent_id}`** working on **Task `{task_id}`** as part of a {agent_count}-agent swarm.
+
+## READ THE INSTRUCTIONS CAREFULLY
+
+@docs/SWARM_AGENT_INSTRUCTIONS.md
+
+The file above contains MANDATORY instructions for:
+1. How to implement your solution
+2. How to signal completion using `finished_work` MCP tool
+3. How to wait for other agents (they work CONCURRENTLY)
+4. How to review and vote using `cast_vote` MCP tool
+
+## Your Identifiers (USE EXACTLY)
+
+| Field | Value |
+|-------|-------|
+| task_id | `{task_id}` |
+| agent_id | `{agent_id}` |
+| agent_count | {agent_count} |
+
+## Quick Reference
+
+```
+Phase 1: Implement → commit your code
+Phase 2: Call finished_work(task_id="{task_id}", agent_id="{agent_id}", implementation="<diff>")
+Phase 2.5: Poll get_all_implementations until success (other agents are concurrent!)
+Phase 3: Call cast_vote(task_id="{task_id}", agent_id="{agent_id}", voted_for="<best>", reason="<why>")
+```
+
+**START NOW**: Begin with Phase 1 - implement the task above.
+"""
 
 
 @dataclass
@@ -50,11 +96,14 @@ class Orchestrator:
         agent_count: int = 3,
         timeout: int = 600,
         console: Console | None = None,
+        state_file: str = ".swarm/state.json",
     ):
         self.agent_count = agent_count
         self.timeout = timeout
         self.console = console or Console()
         self.client = get_client()
+        self.swarm_server = SwarmMCPServer(persistence_path=state_file)
+        self._poll_interval = 5  # seconds between completion checks
 
     def run(self, query: str) -> OrchestrationResult:
         """Execute the full orchestration workflow."""
@@ -217,6 +266,211 @@ class Orchestrator:
                 self.console.print(f"      ✓ Cancelled {session}")
             except Exception as e:
                 self.console.print(f"[yellow]      ⚠ Could not cancel {session}: {e}[/]")
+
+    # =========================================================================
+    # MCP-based methods (new flow with agent-to-agent coordination)
+    # =========================================================================
+
+    def _generate_task_id(self, subtask: Subtask, index: int = 0) -> str:
+        """Generate a unique task ID for a subtask."""
+        short_uuid = str(uuid.uuid4())[:8]
+        return f"{subtask.id}-{short_uuid}"
+
+    def _generate_agent_prompt(
+        self,
+        subtask: Subtask,
+        task_id: str,
+        agent_id: str,
+    ) -> str:
+        """Generate the agent prompt with MCP tool instructions."""
+        return AGENT_PROMPT_TEMPLATE.format(
+            task_prompt=subtask.prompt,
+            task_id=task_id,
+            agent_id=agent_id,
+            agent_count=self.agent_count,
+        )
+
+    def _spawn_agents_with_mcp(
+        self,
+        subtask: Subtask,
+        task_id: str,
+    ) -> list[str]:
+        """Spawn agents with MCP coordination enabled."""
+        self.console.print(f"   🚀 Spawning {self.agent_count} agents...")
+
+        # Register task with swarm server
+        task = self.swarm_server.create_task(
+            task_id=task_id,
+            agent_count=self.agent_count,
+            session_prefix=task_id,
+        )
+
+        sessions = []
+        for agent_id in task.agent_ids:
+            session_name = task.session_names[agent_id]
+
+            # Generate prompt with MCP instructions
+            prompt = self._generate_agent_prompt(subtask, task_id, agent_id)
+
+            # Create spec with enhanced prompt
+            self.client.create_spec(session_name, prompt)
+
+            # Start agent
+            self.client.start_agent(session_name, skip_permissions=True)
+
+            sessions.append(session_name)
+            self.console.print(f"      ✓ {session_name} started (agent: {agent_id})")
+
+        return sessions
+
+    def _wait_for_mcp_completion(self, task_id: str) -> None:
+        """Wait for all agents to signal completion via MCP."""
+        self.console.print("   ⏳ Waiting for agents to finish...")
+
+        start_time = time.time()
+        last_status = {}
+
+        while True:
+            if time.time() - start_time > self.timeout:
+                raise TimeoutError(f"Timeout waiting for task {task_id}")
+
+            task = self.swarm_server.state.get_task(task_id)
+            if not task:
+                raise ValueError(f"Task {task_id} not found")
+
+            # Report progress
+            for agent_id in task.agent_ids:
+                status = task.agent_statuses.get(agent_id)
+                if status and agent_id not in last_status:
+                    self.console.print(f"      ✓ {agent_id} finished")
+                    last_status[agent_id] = status
+
+            if task.all_agents_finished():
+                self.console.print("      All agents finished!")
+                return
+
+            time.sleep(self._poll_interval)
+
+    def _wait_for_mcp_votes(self, task_id: str) -> dict:
+        """Wait for all agents to cast their votes via MCP."""
+        self.console.print("   🗳️  Waiting for agents to vote...")
+
+        start_time = time.time()
+        last_votes = set()
+
+        while True:
+            if time.time() - start_time > self.timeout:
+                raise TimeoutError(f"Timeout waiting for votes on task {task_id}")
+
+            task = self.swarm_server.state.get_task(task_id)
+            if not task:
+                raise ValueError(f"Task {task_id} not found")
+
+            # Report progress
+            for voter_id in task.votes:
+                if voter_id not in last_votes:
+                    vote = task.votes[voter_id]
+                    self.console.print(
+                        f"      ✓ {voter_id} voted for {vote.voted_for}"
+                    )
+                    last_votes.add(voter_id)
+
+            if task.all_agents_voted():
+                self.console.print("      All votes are in!")
+                return self.swarm_server.state.get_vote_results(task_id)
+
+            time.sleep(self._poll_interval)
+
+    def _get_winner_session(self, task_id: str, winner_agent_id: str) -> str:
+        """Get the Schaltwerk session name for the winning agent."""
+        task = self.swarm_server.state.get_task(task_id)
+        if not task:
+            raise ValueError(f"Task {task_id} not found")
+
+        return task.session_names.get(winner_agent_id, winner_agent_id)
+
+    def _process_subtask_with_mcp(self, subtask: Subtask) -> SubtaskResult:
+        """Process a subtask using the new MCP-based flow."""
+        self.console.print(f"\n[bold cyan]Processing:[/] {subtask.id}")
+
+        # Generate task ID
+        task_id = self._generate_task_id(subtask)
+
+        # Spawn agents with MCP-enabled prompts
+        sessions = self._spawn_agents_with_mcp(subtask, task_id)
+
+        # Wait for all agents to finish (via MCP signals)
+        self._wait_for_mcp_completion(task_id)
+
+        # Wait for all agents to vote (via MCP)
+        vote_results = self._wait_for_mcp_votes(task_id)
+
+        # Process results
+        winner_session = None
+        merged = False
+
+        if vote_results.get("success") and vote_results.get("winner"):
+            winner_agent_id = vote_results["winner"]
+            winner_session = self._get_winner_session(task_id, winner_agent_id)
+
+            vote_counts = vote_results.get("vote_counts", {})
+            total = sum(vote_counts.values())
+            winner_votes = vote_counts.get(winner_agent_id, 0)
+            confidence = winner_votes / total if total > 0 else 0
+
+            self.console.print(
+                f"[green]✅ Consensus reached[/] "
+                f"({winner_agent_id} with {winner_votes}/{total} votes)"
+            )
+
+            # Show vote breakdown
+            for voter in vote_results.get("votes", []):
+                self.console.print(
+                    f"      {voter['voter']} → {voter['voted_for']}: {voter['reason'][:50]}..."
+                )
+
+            # Mark session as reviewed before merging
+            self.client.mark_reviewed(winner_session)
+
+            # Merge winner
+            merged = self._merge_winner(winner_session, subtask)
+
+            # Cleanup losers
+            self._cleanup_sessions([s for s in sessions if s != winner_session])
+        else:
+            self.console.print("[yellow]⚠️  No clear winner - manual review needed[/]")
+
+        # Create a compatible VoteResult for the return value
+        from .voting import VoteGroup
+
+        task = self.swarm_server.state.get_task(task_id)
+        groups = []
+        if task:
+            for agent_id, impl in task.implementations.items():
+                session = task.session_names.get(agent_id, agent_id)
+                groups.append(VoteGroup(
+                    diff_hash=agent_id,
+                    diff_content=impl,
+                    sessions=[session],
+                ))
+
+        vote_result = VoteResult(
+            groups=groups,
+            winner=groups[0] if winner_session and groups else None,
+            total_votes=self.agent_count,
+            consensus_reached=merged,
+            confidence=vote_results.get("vote_counts", {}).get(
+                vote_results.get("winner", ""), 0
+            ) / self.agent_count if vote_results.get("winner") else 0,
+        )
+
+        return SubtaskResult(
+            subtask=subtask,
+            sessions=sessions,
+            vote_result=vote_result,
+            winner_session=winner_session,
+            merged=merged,
+        )
 
 
 def run_swarm(query: str, agents: int = 3, timeout: int = 600) -> OrchestrationResult:

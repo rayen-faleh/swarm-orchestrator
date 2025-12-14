@@ -9,6 +9,15 @@ from swarm_orchestrator.decomposer import Subtask, DecompositionResult
 from swarm_orchestrator.voting import VoteGroup, VoteResult
 
 
+@pytest.fixture(autouse=True)
+def reset_schaltwerk_singleton():
+    """Reset the Schaltwerk client singleton before and after each test."""
+    from swarm_orchestrator import schaltwerk
+    schaltwerk.reset_client()
+    yield
+    schaltwerk.reset_client()
+
+
 @pytest.fixture
 def sample_subtask():
     """A sample subtask for testing."""
