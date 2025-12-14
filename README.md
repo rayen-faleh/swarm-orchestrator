@@ -8,37 +8,104 @@ Swarm Orchestrator applies MAKER paper principles (redundant execution + voting)
 
 ## Prerequisites
 
-- Python 3.11+
-- [Claude Code](https://claude.ai/claude-code) installed and configured
-- [Schaltwerk](https://github.com/anthropics/schaltwerk) MCP server available
-- Git repository (swarm operates on git repos)
+Before installing Swarm Orchestrator, ensure you have the following:
+
+### Required
+
+| Requirement | Version | Description |
+|-------------|---------|-------------|
+| **Python** | 3.11+ | Python 3.11, 3.12, or 3.13 supported |
+| **Git** | Any recent | Swarm operates on git repositories |
+| **Anthropic API Key** | - | Set as `ANTHROPIC_API_KEY` environment variable |
+
+### External Dependencies
+
+| Dependency | Purpose | Installation |
+|------------|---------|--------------|
+| **[Claude Code](https://claude.ai/claude-code)** | AI agents run as Claude Code instances | `npm install -g @anthropic-ai/claude-code` |
+| **[Schaltwerk](https://github.com/anthropics/schaltwerk)** | Manages git worktrees for parallel agents | MCP server (see Schaltwerk docs) |
+
+> **Note**: Schaltwerk must be configured as an MCP server in your Claude Code setup. Swarm Orchestrator uses Schaltwerk to create isolated git worktrees for each agent.
 
 ## Installation
 
-Install swarm-orchestrator into your project:
+### Quick Install (Recommended)
+
+For most users, install directly from PyPI:
 
 ```bash
-# Using uv (recommended)
+# Using uv (fastest)
 uv pip install swarm-orchestrator
 
-# Or using pip
+# Using pip
 pip install swarm-orchestrator
+
+# Using pipx (isolated environment)
+pipx install swarm-orchestrator
 ```
 
-For development:
+### Verify Installation
 
 ```bash
-# Clone the repository
+swarm --version
+swarm --help
+```
+
+### Installation Methods Comparison
+
+| Method | Best For | Isolation | Command |
+|--------|----------|-----------|---------|
+| `uv pip install` | Speed, daily use | Project venv | `uv pip install swarm-orchestrator` |
+| `pip install` | Standard Python | Project venv | `pip install swarm-orchestrator` |
+| `pipx install` | CLI tool users | Global isolated | `pipx install swarm-orchestrator` |
+
+### Development Installation
+
+For contributors or those who want to modify the source:
+
+```bash
+# 1. Clone the repository
 git clone https://github.com/anthropics/swarm-orchestrator.git
 cd swarm-orchestrator
 
-# Install with dev dependencies
+# 2. Create virtual environment (recommended)
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# or: .venv\Scripts\activate  # Windows
+
+# 3. Install with dev dependencies
 uv pip install -e ".[dev]"
+
+# 4. Verify installation
+swarm --version
+uv run pytest  # Run tests
 ```
 
-## Setup
+### Troubleshooting Installation
 
-Initialize swarm-orchestrator in your project:
+**"Command not found: swarm"**
+- Ensure your virtual environment is activated
+- Or use `python -m swarm_orchestrator.cli` instead
+
+**"No module named 'anthropic'"**
+- Dependencies didn't install correctly. Run: `uv pip install swarm-orchestrator --reinstall`
+
+**Python version errors**
+- Swarm requires Python 3.11+. Check with: `python --version`
+
+## Quick Start
+
+Get up and running in 4 steps:
+
+### Step 1: Set Your API Key
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
+
+### Step 2: Initialize in Your Project
 
 ```bash
 cd /path/to/your/project
@@ -49,7 +116,17 @@ This creates:
 - `.mcp.json` - MCP server configuration for Claude Code
 - `.swarm/` - Directory for task state persistence
 
-After initialization, **restart Claude Code** to load the new MCP server.
+### Step 3: Restart Claude Code
+
+After initialization, **restart Claude Code** to load the new MCP server configuration.
+
+### Step 4: Run Your First Task
+
+```bash
+swarm run "Add a hello world function to main.py"
+```
+
+Watch as multiple agents work on your task, vote on solutions, and produce a consensus result!
 
 ## Usage
 
