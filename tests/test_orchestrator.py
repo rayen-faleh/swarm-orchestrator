@@ -416,11 +416,14 @@ class TestAgentPromptTemplate:
         assert "{agent_count}" in AGENT_PROMPT_TEMPLATE
 
     def test_prompt_template_describes_workflow(self):
-        """Template should describe the expected workflow and reference instructions."""
+        """Template should describe the expected workflow with embedded instructions."""
         from swarm_orchestrator.orchestrator import AGENT_PROMPT_TEMPLATE
 
-        # Should reference the detailed instructions file
-        assert "@docs/SWARM_AGENT_INSTRUCTIONS.md" in AGENT_PROMPT_TEMPLATE
+        # Instructions are now embedded directly (not referencing external file)
+        # Should contain key workflow phases
+        assert "Phase 1: Implementation" in AGENT_PROMPT_TEMPLATE
+        assert "Phase 2: Signal Completion" in AGENT_PROMPT_TEMPLATE
+        assert "Phase 3: Review and Vote" in AGENT_PROMPT_TEMPLATE
 
         # Should mention key MCP tools
         assert "finished_work" in AGENT_PROMPT_TEMPLATE
