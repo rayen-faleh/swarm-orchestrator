@@ -4,7 +4,7 @@ State management for Swarm MCP server.
 Tracks:
 - Task state (which agents are assigned, their status)
 - Agent completion status
-- Implementations submitted by each agent
+- Implementations submitted by each agent (with condensed diffs)
 - Votes cast by each agent
 
 Uses file locking for concurrent access from multiple agent processes.
@@ -19,6 +19,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Generator
 from collections import Counter
+
+from .diff_utils import (
+    ImplementationSummary,
+    DiffStats,
+    create_implementation_summary,
+)
 
 
 class AgentStatus(Enum):
@@ -43,7 +49,7 @@ class TaskState:
     agent_ids: list[str]
     session_names: dict[str, str]  # agent_id -> session_name
     agent_statuses: dict[str, AgentStatus] = field(default_factory=dict)
-    implementations: dict[str, str] = field(default_factory=dict)  # agent_id -> impl
+    implementations: dict[str, ImplementationSummary] = field(default_factory=dict)  # agent_id -> summary
     votes: dict[str, VoteRecord] = field(default_factory=dict)  # voter_id -> VoteRecord
 
     def all_agents_finished(self) -> bool:
@@ -75,12 +81,23 @@ class TaskState:
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for persistence."""
+        # Serialize implementations with full data for persistence
+        impl_data = {}
+        for agent_id, impl in self.implementations.items():
+            impl_data[agent_id] = {
+                "agent_id": impl.agent_id,
+                "session_name": impl.session_name,
+                "stats": impl.stats.to_dict(),
+                "condensed_diff": impl.condensed_diff,
+                "full_diff": impl.full_diff,
+            }
+
         return {
             "task_id": self.task_id,
             "agent_ids": self.agent_ids,
             "session_names": self.session_names,
             "agent_statuses": {k: v.value for k, v in self.agent_statuses.items()},
-            "implementations": self.implementations,
+            "implementations": impl_data,
             "votes": {
                 k: {"voter": v.voter, "voted_for": v.voted_for, "reason": v.reason}
                 for k, v in self.votes.items()
@@ -98,7 +115,33 @@ class TaskState:
         task.agent_statuses = {
             k: AgentStatus(v) for k, v in data.get("agent_statuses", {}).items()
         }
-        task.implementations = data.get("implementations", {})
+
+        # Deserialize implementations - handle both old (string) and new (dict) formats
+        raw_impls = data.get("implementations", {})
+        for agent_id, impl_data in raw_impls.items():
+            if isinstance(impl_data, str):
+                # Old format: raw diff string - convert to new format
+                task.implementations[agent_id] = create_implementation_summary(
+                    agent_id=agent_id,
+                    session_name=data["session_names"].get(agent_id, ""),
+                    full_diff=impl_data,
+                )
+            else:
+                # New format: structured dict
+                stats_data = impl_data.get("stats", {})
+                stats = DiffStats(
+                    files_changed=stats_data.get("files", []),
+                    lines_added=stats_data.get("added", 0),
+                    lines_deleted=stats_data.get("deleted", 0),
+                )
+                task.implementations[agent_id] = ImplementationSummary(
+                    agent_id=impl_data.get("agent_id", agent_id),
+                    session_name=impl_data.get("session_name", ""),
+                    stats=stats,
+                    condensed_diff=impl_data.get("condensed_diff", ""),
+                    full_diff=impl_data.get("full_diff", ""),
+                )
+
         task.votes = {
             k: VoteRecord(voter=v["voter"], voted_for=v["voted_for"], reason=v["reason"])
             for k, v in data.get("votes", {}).items()
@@ -202,10 +245,15 @@ class SwarmState:
         """
         Mark an agent as finished and store their implementation.
 
+        Creates a structured ImplementationSummary with:
+        - Condensed diff (no context lines, normalized whitespace)
+        - Stats (files changed, lines added/deleted)
+        - Full diff (kept for reference)
+
         Args:
             task_id: The task ID
             agent_id: The agent that finished
-            implementation: The agent's implementation (diff or code)
+            implementation: The agent's implementation (git diff)
 
         Returns:
             Result dict with success status and remaining agent count
@@ -218,7 +266,14 @@ class SwarmState:
             return {"success": False, "error": f"Agent '{agent_id}' not found in task"}
 
         task.agent_statuses[agent_id] = AgentStatus.FINISHED
-        task.implementations[agent_id] = implementation
+
+        # Create structured implementation summary
+        session_name = task.session_names.get(agent_id, "")
+        task.implementations[agent_id] = create_implementation_summary(
+            agent_id=agent_id,
+            session_name=session_name,
+            full_diff=implementation,
+        )
         self._auto_save()
 
         # Count remaining agents
@@ -237,6 +292,10 @@ class SwarmState:
     def get_all_implementations(self, task_id: str) -> dict:
         """
         Get all implementations for a task.
+
+        Returns structured summaries with:
+        - Metadata (files changed, stats)
+        - Condensed diff (no context, normalized whitespace)
 
         Only available after all agents have finished.
 
@@ -262,11 +321,29 @@ class SwarmState:
 
         implementations = []
         for agent_id in task.agent_ids:
-            implementations.append({
-                "agent_id": agent_id,
-                "session_name": task.session_names.get(agent_id, ""),
-                "implementation": task.implementations.get(agent_id, ""),
-            })
+            impl = task.implementations.get(agent_id)
+            if impl:
+                implementations.append({
+                    "agent_id": agent_id,
+                    "session_name": impl.session_name,
+                    "summary": {
+                        "files_changed": impl.stats.files_changed,
+                        "stats": impl.stats.to_dict(),
+                    },
+                    # Condensed diff: no context lines, normalized whitespace
+                    "condensed_diff": impl.condensed_diff,
+                })
+            else:
+                # Fallback for missing implementation
+                implementations.append({
+                    "agent_id": agent_id,
+                    "session_name": task.session_names.get(agent_id, ""),
+                    "summary": {
+                        "files_changed": [],
+                        "stats": {"files": [], "files_count": 0, "added": 0, "deleted": 0, "total": 0},
+                    },
+                    "condensed_diff": "",
+                })
 
         return {
             "success": True,
@@ -304,6 +381,9 @@ class SwarmState:
 
         if voted_for not in task.agent_ids:
             return {"success": False, "error": f"Invalid vote target: '{voted_for}' is not an agent in this task"}
+
+        if voted_for == agent_id:
+            return {"success": False, "error": f"Cannot vote for yourself. Vote for another agent's implementation."}
 
         if agent_id in task.votes:
             return {"success": False, "error": f"Agent '{agent_id}' has already voted"}

@@ -122,11 +122,28 @@ class Orchestrator:
             for st in decomposition.subtasks:
                 self.console.print(f"      • {st.id}: {st.description}")
 
-        # Step 2-5: Process each subtask using MCP-based coordination
+        # Step 2-5: Process each subtask SEQUENTIALLY
+        # User must merge each winner before the next subtask starts
         subtask_results = []
-        for subtask in decomposition.subtasks:
+        total_subtasks = len(decomposition.subtasks)
+
+        for idx, subtask in enumerate(decomposition.subtasks):
+            subtask_num = idx + 1
+            is_last = (subtask_num == total_subtasks)
+
+            # Show progress for multi-subtask workflows
+            if total_subtasks > 1:
+                self.console.print(f"\n{'━' * 50}")
+                self.console.print(
+                    f"[bold]📦 Subtask {subtask_num}/{total_subtasks}[/]"
+                )
+
             result = self._process_subtask_with_mcp(subtask)
             subtask_results.append(result)
+
+            # If there are more subtasks and this one succeeded, wait for user to merge
+            if not is_last and result.vote_result.consensus_reached and result.winner_session:
+                self._wait_for_user_merge(result.winner_session, subtask_num, total_subtasks)
 
         # Determine overall success based on consensus (not merge - user merges manually)
         overall_success = all(r.vote_result.consensus_reached for r in subtask_results)
@@ -141,6 +158,61 @@ class Orchestrator:
     def _decompose(self, query: str) -> DecompositionResult:
         """Decompose the query into subtasks."""
         return decompose_task(query, timeout=self.timeout)
+
+    def _wait_for_user_merge(
+        self,
+        winner_session: str,
+        current_subtask: int,
+        total_subtasks: int,
+    ) -> None:
+        """
+        Wait for user to merge the winner before continuing to next subtask.
+
+        This ensures the codebase has the changes from the current subtask
+        before agents start working on the next subtask (which may depend on it).
+        """
+        self.console.print("\n" + "═" * 50)
+        self.console.print(
+            f"[bold yellow]⏸️  WAITING FOR MERGE[/] "
+            f"(Subtask {current_subtask}/{total_subtasks} complete)"
+        )
+        self.console.print("═" * 50)
+        self.console.print(
+            f"\n[bold]The next subtask may depend on this one's changes.[/]"
+        )
+        self.console.print(
+            f"Please review and merge the winner before continuing:\n"
+        )
+        self.console.print(f"   [cyan]Winner session:[/] {winner_session}")
+        self.console.print(f"   [dim]To review:[/]  schaltwerk diff {winner_session}")
+        self.console.print(f"   [dim]To merge:[/]   schaltwerk merge {winner_session}")
+        self.console.print("")
+        self.console.print(
+            f"[bold]After merging, type 'continue' to proceed to subtask "
+            f"{current_subtask + 1}/{total_subtasks}:[/]"
+        )
+
+        while True:
+            try:
+                user_input = input("\n> ").strip().lower()
+                if user_input == "continue":
+                    self.console.print(
+                        f"\n[green]✓ Continuing to next subtask...[/]\n"
+                    )
+                    break
+                elif user_input in ("quit", "exit", "q"):
+                    self.console.print("\n[yellow]Orchestration paused by user.[/]")
+                    raise KeyboardInterrupt("User requested exit")
+                else:
+                    self.console.print(
+                        f"[dim]Type 'continue' after merging, or 'quit' to exit.[/]"
+                    )
+            except EOFError:
+                # Handle non-interactive mode
+                self.console.print(
+                    "\n[yellow]Non-interactive mode: auto-continuing...[/]"
+                )
+                break
 
     def _process_subtask(self, subtask: Subtask) -> SubtaskResult:
         """Process a single subtask through agents and voting."""

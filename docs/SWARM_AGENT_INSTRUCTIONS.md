@@ -227,20 +227,55 @@ get_all_implementations(task_id="{task_id}")
 
 > **CRITICAL**: Only proceed here when `get_all_implementations` succeeds.
 
-### Step 1: Review All Implementations
-The `get_all_implementations` response looks like:
+### Step 1: Quick Scan (Use the Summary!)
+
+The `get_all_implementations` response provides **structured summaries** for quick comparison:
+
 ```json
 {{
     "success": true,
     "implementations": [
-        {{"agent_id": "{task_id}-agent-0", "implementation": "...diff..."}},
-        {{"agent_id": "{task_id}-agent-1", "implementation": "...diff..."}},
-        {{"agent_id": "{task_id}-agent-2", "implementation": "...diff..."}}
+        {{
+            "agent_id": "{task_id}-agent-0",
+            "session_name": "{task_id}-agent-0",
+            "summary": {{
+                "files_changed": ["src/foo.py", "tests/test_foo.py"],
+                "stats": {{
+                    "files_count": 2,
+                    "added": 48,
+                    "deleted": 12,
+                    "total": 60
+                }}
+            }},
+            "condensed_diff": "diff --git a/src/foo.py...\n+new code\n-old code"
+        }}
     ]
 }}
 ```
 
-### Step 2: Evaluate Each Solution
+**Build a comparison table mentally:**
+
+| Agent | Files | +Added | -Deleted | Total Changes |
+|-------|-------|--------|----------|---------------|
+| agent-0 | 2 | +48 | -12 | 60 |
+| agent-1 | 5 | +120 | -45 | 165 |
+| agent-2 | 2 | +30 | -8 | 38 |
+
+**Quick red flags:**
+- ❌ Too many files changed = over-engineered
+- ❌ High total changes for simple task = bloated
+- ⭐ Minimal changes that solve the problem = elegant
+
+### Step 2: Review Condensed Diffs
+
+The `condensed_diff` field contains a **minimal diff** with:
+- No context lines (only changed lines)
+- Normalized whitespace
+- File headers preserved
+
+This is much smaller than full git diff - focus on **what actually changed**.
+
+### Step 3: Evaluate Each Solution
 
 **Vote for the solution that best balances these criteria:**
 
@@ -255,7 +290,7 @@ The `get_all_implementations` response looks like:
 > **Prefer**: A 50-line solution that works perfectly over a 500-line "enterprise" solution.
 > **Penalize**: Over-engineering, unnecessary abstractions, speculative features, verbose comments on obvious code.
 
-### Step 3: Cast Your Vote
+### Step 4: Cast Your Vote
 ```
 cast_vote(
     task_id="{task_id}",
@@ -266,10 +301,10 @@ cast_vote(
 ```
 
 **RULES**:
-- You MAY vote for yourself if your solution is genuinely best
-- You MUST vote for exactly ONE agent
+- You CANNOT vote for yourself - the system will reject self-votes
+- You MUST vote for exactly ONE other agent
 - Your vote is FINAL - no changes allowed
-- Be OBJECTIVE - vote for quality, not familiarity
+- Be OBJECTIVE - vote for the best implementation among your competitors
 
 ---
 

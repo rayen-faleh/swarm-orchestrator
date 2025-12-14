@@ -16,7 +16,7 @@ DECOMPOSE_PROMPT = """You are a task decomposer for software engineering tasks.
 
 Given a coding task, analyze it and determine if it should be:
 1. ATOMIC - A single, focused change (one feature, one bug fix, one refactor)
-2. COMPLEX - Multiple independent changes that should be done separately
+2. COMPLEX - Multiple changes that should be done in sequence
 
 Output ONLY valid JSON (no markdown, no explanation):
 {{
@@ -32,9 +32,24 @@ Output ONLY valid JSON (no markdown, no explanation):
 
 Rules:
 - For ATOMIC tasks: Return exactly one subtask with the original task as the prompt
-- For COMPLEX tasks: Break into 2-5 independent subtasks
-- Each subtask should be completable independently
+- For COMPLEX tasks: Break into 2-5 subtasks executed SEQUENTIALLY
 - IDs should be lowercase with hyphens (e.g., "add-auth", "fix-login")
+
+CRITICAL - Sequential Execution Model:
+- Subtasks are executed ONE AT A TIME, in order
+- Each subtask's winning implementation is MERGED before the next subtask starts
+- Later subtasks CAN and SHOULD depend on earlier subtasks' changes
+- Order matters: put foundational changes FIRST (e.g., "add data model" before "add API endpoints")
+
+Example of GOOD ordering:
+1. "add-user-model" - Create the User data model
+2. "add-auth-endpoints" - Add authentication API (depends on User model)
+3. "add-protected-routes" - Protect routes with auth middleware (depends on auth)
+
+Example of BAD ordering:
+1. "add-protected-routes" - ❌ Can't protect routes before auth exists!
+2. "add-auth-endpoints"
+3. "add-user-model"
 
 IMPORTANT - Prompt Guidelines:
 - The prompt should describe WHAT needs to be done, not HOW to do it
@@ -42,6 +57,7 @@ IMPORTANT - Prompt Guidelines:
 - DO NOT prescribe which files to modify or what functions to create
 - Let the agents independently discover their own solutions
 - Keep prompts minimal and goal-focused
+- Later subtasks can reference that earlier work exists (e.g., "using the auth system")
 
 Example of BAD prompt (too prescriptive):
 "Add a timeout parameter to the run function. Modify cli.py to accept --timeout flag, pass it to Orchestrator constructor, and update the Orchestrator class to use self.timeout in wait loops."

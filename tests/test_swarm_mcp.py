@@ -180,7 +180,10 @@ class TestSwarmState:
 
         task = state.get_task("task-1")
         assert task.agent_statuses["agent-0"] == AgentStatus.FINISHED
-        assert task.implementations["agent-0"] == "def hello(): pass"
+        # Implementation is now an ImplementationSummary object
+        impl = task.implementations["agent-0"]
+        assert impl.full_diff == "def hello(): pass"
+        assert impl.agent_id == "agent-0"
 
     def test_mark_agent_finished_counts_remaining(self):
         """Should correctly count remaining agents."""
@@ -221,7 +224,7 @@ class TestSwarmState:
         assert "not found" in result["error"]
 
     def test_get_all_implementations(self):
-        """Should return all implementations with agent labels."""
+        """Should return all implementations with structured summaries."""
         state = SwarmState()
         state.create_task(
             task_id="task-1",
@@ -229,8 +232,11 @@ class TestSwarmState:
             session_names={"agent-0": "session-0", "agent-1": "session-1"},
         )
 
-        state.mark_agent_finished("task-1", "agent-0", "def foo(): return 1")
-        state.mark_agent_finished("task-1", "agent-1", "def foo(): return 2")
+        # Use realistic diff format
+        diff_0 = "diff --git a/foo.py b/foo.py\n+def foo(): return 1"
+        diff_1 = "diff --git a/foo.py b/foo.py\n+def foo(): return 2"
+        state.mark_agent_finished("task-1", "agent-0", diff_0)
+        state.mark_agent_finished("task-1", "agent-1", diff_1)
 
         result = state.get_all_implementations("task-1")
 
@@ -238,8 +244,12 @@ class TestSwarmState:
         assert len(result["implementations"]) == 2
 
         impl_0 = next(i for i in result["implementations"] if i["agent_id"] == "agent-0")
-        assert impl_0["implementation"] == "def foo(): return 1"
+        # New format has summary and condensed_diff
         assert impl_0["session_name"] == "session-0"
+        assert "summary" in impl_0
+        assert "condensed_diff" in impl_0
+        assert "foo.py" in impl_0["summary"]["files_changed"]
+        assert "+def foo(): return 1" in impl_0["condensed_diff"]
 
     def test_get_implementations_not_all_finished(self):
         """Should return error if not all agents finished."""
@@ -298,6 +308,18 @@ class TestSwarmState:
         assert result["success"] is False
         assert "invalid" in result["error"].lower()
 
+    def test_cast_vote_self_vote_rejected(self):
+        """Should reject self-votes to ensure fairness."""
+        state = SwarmState()
+        state.create_task("task-1", ["agent-0", "agent-1"], {})
+        state.mark_agent_finished("task-1", "agent-0", "impl-0")
+        state.mark_agent_finished("task-1", "agent-1", "impl-1")
+
+        result = state.cast_vote("task-1", "agent-0", "agent-0", "I'm the best!")
+
+        assert result["success"] is False
+        assert "cannot vote for yourself" in result["error"].lower()
+
     def test_cast_vote_duplicate(self):
         """Should reject duplicate votes."""
         state = SwarmState()
@@ -306,7 +328,7 @@ class TestSwarmState:
         state.mark_agent_finished("task-1", "agent-1", "impl-1")
 
         state.cast_vote("task-1", "agent-0", "agent-1", "first vote")
-        result = state.cast_vote("task-1", "agent-0", "agent-0", "change vote")
+        result = state.cast_vote("task-1", "agent-0", "agent-1", "change vote")
 
         assert result["success"] is False
         assert "already voted" in result["error"]
@@ -351,14 +373,14 @@ class TestSwarmState:
         assert result["votes_remaining"] == 2
 
     def test_persistence_save_load(self):
-        """Should persist and restore state."""
+        """Should persist and restore state with structured implementations."""
         with tempfile.TemporaryDirectory() as tmpdir:
             state_file = Path(tmpdir) / "state.json"
 
             # Create and populate state
             state1 = SwarmState(persistence_path=str(state_file))
             state1.create_task("task-1", ["agent-0", "agent-1"], {"agent-0": "s0", "agent-1": "s1"})
-            state1.mark_agent_finished("task-1", "agent-0", "impl-0")
+            state1.mark_agent_finished("task-1", "agent-0", "diff --git a/file.py b/file.py\n+impl-0")
             state1.save()
 
             # Load in new instance
@@ -367,7 +389,11 @@ class TestSwarmState:
 
             task = state2.get_task("task-1")
             assert task is not None
-            assert task.implementations["agent-0"] == "impl-0"
+            # Implementation is now an ImplementationSummary object
+            impl = task.implementations["agent-0"]
+            assert impl.full_diff == "diff --git a/file.py b/file.py\n+impl-0"
+            assert impl.agent_id == "agent-0"
+            assert "file.py" in impl.stats.files_changed
             assert task.agent_statuses["agent-0"] == AgentStatus.FINISHED
 
 
@@ -477,17 +503,21 @@ class TestGetVoteResultsTool:
     def test_execute_returns_results(self):
         """Should return vote results."""
         state = SwarmState()
-        state.create_task("task-1", ["agent-0", "agent-1"], {})
+        # Need 3 agents since agents can't vote for themselves
+        state.create_task("task-1", ["agent-0", "agent-1", "agent-2"], {})
         state.mark_agent_finished("task-1", "agent-0", "impl-0")
         state.mark_agent_finished("task-1", "agent-1", "impl-1")
+        state.mark_agent_finished("task-1", "agent-2", "impl-2")
+        # All vote for agent-1 (no self-votes allowed)
         state.cast_vote("task-1", "agent-0", "agent-1", "")
-        state.cast_vote("task-1", "agent-1", "agent-1", "")
+        state.cast_vote("task-1", "agent-1", "agent-0", "")  # agent-1 can't vote for itself
+        state.cast_vote("task-1", "agent-2", "agent-1", "")
 
         tool = GetVoteResultsTool(state)
         result = tool.execute({"task_id": "task-1"})
 
         assert result["success"] is True
-        assert result["winner"] == "agent-1"
+        assert result["winner"] == "agent-1"  # 2 votes vs 1 vote
 
 
 # =============================================================================
