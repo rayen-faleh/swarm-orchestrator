@@ -20,12 +20,27 @@ Before installing Swarm Orchestrator, ensure you have the following:
 
 ### External Dependencies
 
-| Dependency | Purpose | Installation |
-|------------|---------|--------------|
-| **[Claude Code](https://claude.ai/claude-code)** | AI agents run as Claude Code instances | `npm install -g @anthropic-ai/claude-code` |
-| **[Schaltwerk](https://github.com/anthropics/schaltwerk)** | Manages git worktrees for parallel agents | MCP server (see Schaltwerk docs) |
+| Dependency | Purpose | Platform |
+|------------|---------|----------|
+| **[Claude Code](https://claude.ai/claude-code)** | AI agents run as Claude Code instances | All |
+| **[Schaltwerk](https://github.com/2mawi2/schaltwerk)** | Manages git worktrees for parallel agents | macOS only |
 
-> **Note**: Schaltwerk must be configured as an MCP server in your Claude Code setup. Swarm Orchestrator uses Schaltwerk to create isolated git worktrees for each agent.
+#### Installing Claude Code
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+#### Installing Schaltwerk
+
+[Schaltwerk](https://github.com/2mawi2/schaltwerk) is a desktop app that manages Claude Code agents in isolated git worktrees. Currently **macOS only**.
+
+```bash
+# Install via Homebrew
+brew install --cask 2mawi2/tap/schaltwerk
+```
+
+> **Note**: Schaltwerk must be running and configured as an MCP server in your Claude Code setup. Swarm Orchestrator uses Schaltwerk to create isolated git worktrees for each agent, enabling true parallel execution without conflicts.
 
 ## Installation
 
@@ -65,7 +80,7 @@ For contributors or those who want to modify the source:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/anthropics/swarm-orchestrator.git
+git clone https://github.com/rayen-faleh/swarm-orchestrator.git
 cd swarm-orchestrator
 
 # 2. Create virtual environment (recommended)

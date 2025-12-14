@@ -54,11 +54,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/anthropics/swarm-orchestrator"
-Documentation = "https://github.com/anthropics/swarm-orchestrator#readme"
-Repository = "https://github.com/anthropics/swarm-orchestrator"
-Issues = "https://github.com/anthropics/swarm-orchestrator/issues"
-Changelog = "https://github.com/anthropics/swarm-orchestrator/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/rayen-faleh/swarm-orchestrator"
+Documentation = "https://github.com/rayen-faleh/swarm-orchestrator#readme"
+Repository = "https://github.com/rayen-faleh/swarm-orchestrator"
+Issues = "https://github.com/rayen-faleh/swarm-orchestrator/issues"
+Changelog = "https://github.com/rayen-faleh/swarm-orchestrator/blob/main/CHANGELOG.md"
 
 [project.scripts]
 swarm = "swarm_orchestrator.cli:main"
