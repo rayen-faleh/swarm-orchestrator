@@ -18,7 +18,7 @@ BACKENDS = {
     },
     "agent": {
         "schaltwerk": "Uses Schaltwerk MCP to spawn Claude agents (default)",
-        "cursor-cli": "Uses Cursor CLI agent in headless mode",
+        "cursor-cli": "Uses Cursor CLI for agent execution - requires cursor-agent installed and CURSOR_API_KEY",
     },
     "llm": {
         "claude-cli": "Uses 'claude' CLI tool - requires Claude Code installed (default)",

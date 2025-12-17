@@ -229,6 +229,11 @@ class TestBackendRegistry:
         choices = get_backend_choices("agent")
         assert "schaltwerk" in choices
 
+    def test_get_backend_choices_agent_includes_cursor_cli(self):
+        """get_backend_choices('agent') includes 'cursor-cli'."""
+        choices = get_backend_choices("agent")
+        assert "cursor-cli" in choices
+
     def test_get_backend_choices_llm(self):
         """get_backend_choices returns LLM options."""
         choices = get_backend_choices("llm")
@@ -246,3 +251,27 @@ class TestBackendRegistry:
             for name, desc in options.items():
                 assert desc, f"Missing description for {backend_type}/{name}"
                 assert len(desc) > 10, f"Description too short for {backend_type}/{name}"
+
+
+class TestCursorCLIBackendConfig:
+    """Tests for cursor-cli backend registration."""
+
+    def test_backends_agent_contains_cursor_cli(self):
+        """BACKENDS['agent'] contains 'cursor-cli' entry."""
+        assert "cursor-cli" in BACKENDS["agent"]
+
+    def test_cursor_cli_has_description(self):
+        """cursor-cli has a descriptive string."""
+        desc = BACKENDS["agent"]["cursor-cli"]
+        assert isinstance(desc, str)
+        assert len(desc) > 0
+
+    def test_swarm_config_validates_cursor_cli(self):
+        """SwarmConfig(agent_backend='cursor-cli') passes validation."""
+        config = SwarmConfig(agent_backend="cursor-cli")
+        assert config.agent_backend == "cursor-cli"
+
+    def test_cursor_cli_backend_import_works(self):
+        """CursorCLIAgentBackend can be imported from backends package."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+        assert CursorCLIAgentBackend is not None
