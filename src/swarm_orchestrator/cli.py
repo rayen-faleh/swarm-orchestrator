@@ -102,7 +102,12 @@ def main():
     is_flag=True,
     help="Automatically merge the winning solution after consensus is reached.",
 )
-def run(query: str, agents: int, timeout: int, auto_merge: bool):
+@click.option(
+    "--skip-exploration",
+    is_flag=True,
+    help="Skip codebase exploration phase (useful for simple tasks).",
+)
+def run(query: str, agents: int, timeout: int, auto_merge: bool, skip_exploration: bool):
     """Run a task through the multi-agent consensus system."""
     console.print(
         Panel.fit(
@@ -117,6 +122,7 @@ def run(query: str, agents: int, timeout: int, auto_merge: bool):
             timeout=timeout,
             console=console,
             auto_merge=auto_merge,
+            skip_exploration=skip_exploration,
         )
         result = orchestrator.run(query)
 

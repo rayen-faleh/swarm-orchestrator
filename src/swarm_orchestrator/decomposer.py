@@ -451,9 +451,15 @@ class Decomposer:
             self._api_client = Anthropic()
         return self._api_client
 
-    def decompose(self, query: str) -> DecompositionResult:
+    def decompose(
+        self,
+        query: str,
+        exploration_result: Optional[ExplorationResult] = None,
+    ) -> DecompositionResult:
         """Decompose a query into subtasks."""
-        prompt = DECOMPOSE_PROMPT.format(query=query)
+        # Build exploration context section if available
+        exploration_context = self._format_exploration_for_decomposer(exploration_result)
+        prompt = DECOMPOSE_PROMPT.format(query=query + exploration_context)
 
         if self.use_api:
             text = self._call_api(prompt)
@@ -461,6 +467,31 @@ class Decomposer:
             text = self._call_cli(prompt)
 
         return self._parse_response(text, query)
+
+    def _format_exploration_for_decomposer(
+        self,
+        exploration_result: Optional[ExplorationResult],
+    ) -> str:
+        """Format exploration results for the decomposition prompt."""
+        if not exploration_result:
+            return ""
+
+        sections = ["\n\n# Exploration Findings\nThe following context was gathered from codebase exploration:"]
+
+        if exploration_result.context_summary:
+            sections.append(f"\n## Summary\n{exploration_result.context_summary}")
+
+        if exploration_result.code_insights:
+            insights = "\n## Relevant Files"
+            for insight in exploration_result.code_insights:
+                insights += f"\n- {insight.file_path}: {insight.description}"
+                if insight.patterns:
+                    insights += f" (patterns: {', '.join(insight.patterns)})"
+                if insight.dependencies:
+                    insights += f" (deps: {', '.join(insight.dependencies)})"
+            sections.append(insights)
+
+        return "\n".join(sections)
 
     def _call_cli(self, prompt: str) -> str:
         """
@@ -567,7 +598,12 @@ class Decomposer:
         )
 
 
-def decompose_task(query: str, use_api: bool = False, timeout: int = 120) -> DecompositionResult:
+def decompose_task(
+    query: str,
+    use_api: bool = False,
+    timeout: int = 120,
+    exploration_result: Optional[ExplorationResult] = None,
+) -> DecompositionResult:
     """
     Convenience function to decompose a task.
 
@@ -576,9 +612,10 @@ def decompose_task(query: str, use_api: bool = False, timeout: int = 120) -> Dec
         use_api: If True, use Anthropic API (requires ANTHROPIC_API_KEY).
                  If False (default), use claude CLI (uses your login).
         timeout: Timeout in seconds for Claude CLI calls (default: 120)
+        exploration_result: Optional exploration findings to provide context
     """
     decomposer = Decomposer(use_api=use_api, timeout=timeout)
-    return decomposer.decompose(query)
+    return decomposer.decompose(query, exploration_result=exploration_result)
 
 
 def validate_decomposition(result: DecompositionResult) -> tuple[bool, list[str]]:

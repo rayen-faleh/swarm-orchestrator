@@ -392,7 +392,7 @@ class TestDecomposeTaskFunction:
 
         result = decompose_task("My query")
 
-        mock_instance.decompose.assert_called_once_with("My query")
+        mock_instance.decompose.assert_called_once_with("My query", exploration_result=None)
         assert result.is_atomic is True
 
 

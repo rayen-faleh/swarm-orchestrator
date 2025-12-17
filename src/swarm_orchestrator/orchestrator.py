@@ -10,7 +10,8 @@ from typing import Callable, Optional
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .decomposer import Subtask, decompose_task, DecompositionResult, validate_decomposition
+from .decomposer import Subtask, decompose_task, DecompositionResult, validate_decomposition, ExplorationResult
+from .exploration import ExplorationExecutor, needs_exploration
 from .schaltwerk import SchaltwerkClient, get_client
 from .voting import VoteResult, find_consensus, format_vote_summary
 from .swarm_mcp.server import SwarmMCPServer
@@ -21,7 +22,7 @@ from .swarm_mcp.server import SwarmMCPServer
 AGENT_PROMPT_TEMPLATE = """# Task
 
 {task_prompt}
-
+{exploration_context}
 ---
 
 # CRITICAL: Swarm Agent Coordination
@@ -503,6 +504,7 @@ class Orchestrator:
         console: Console | None = None,
         state_file: str = ".swarm/state.json",
         auto_merge: bool = False,
+        skip_exploration: bool = False,
     ):
         self.agent_count = agent_count
         self.timeout = timeout
@@ -511,6 +513,8 @@ class Orchestrator:
         self.swarm_server = SwarmMCPServer(persistence_path=state_file)
         self._poll_interval = 5  # seconds between completion checks
         self.auto_merge = auto_merge
+        self.skip_exploration = skip_exploration
+        self._exploration_result: Optional[ExplorationResult] = None
 
     def _display_decomposition(self, decomposition: DecompositionResult) -> None:
         """Display enhanced decomposition details with scope information."""
@@ -566,7 +570,10 @@ class Orchestrator:
         """Execute the full orchestration workflow."""
         self.console.print(f"\n[bold blue]📋 Task:[/] {query}\n")
 
-        # Step 1: Decompose
+        # Step 0: Exploration (if needed)
+        self._exploration_result = self._explore(query)
+
+        # Step 1: Decompose (with exploration context)
         self.console.print("[bold]🔍 Decomposing task...[/]")
         decomposition = self._decompose(query)
 
@@ -616,9 +623,30 @@ class Orchestrator:
             overall_success=overall_success,
         )
 
+    def _explore(self, query: str) -> Optional[ExplorationResult]:
+        """Run exploration phase if needed."""
+        if self.skip_exploration:
+            self.console.print("[dim]⏭️  Skipping exploration (--skip-exploration)[/]")
+            return None
+
+        if not needs_exploration(query):
+            self.console.print("[dim]⏭️  Skipping exploration (simple task detected)[/]")
+            return None
+
+        self.console.print("[bold]🔬 Exploring codebase...[/]")
+        executor = ExplorationExecutor(timeout=self.timeout)
+        result = executor.explore(query)
+
+        if result.context_summary:
+            self.console.print(f"   [dim]Context: {result.context_summary[:100]}...[/]" if len(result.context_summary) > 100 else f"   [dim]Context: {result.context_summary}[/]")
+            if result.code_insights:
+                self.console.print(f"   [dim]Found {len(result.code_insights)} relevant file(s)[/]")
+
+        return result
+
     def _decompose(self, query: str) -> DecompositionResult:
         """Decompose the query into subtasks."""
-        return decompose_task(query, timeout=self.timeout)
+        return decompose_task(query, timeout=self.timeout, exploration_result=self._exploration_result)
 
     def _wait_for_user_merge(
         self,
@@ -846,14 +874,44 @@ class Orchestrator:
         subtask: Subtask,
         task_id: str,
         agent_id: str,
+        exploration_result: Optional[ExplorationResult] = None,
     ) -> str:
         """Generate the agent prompt with MCP tool instructions."""
+        exploration_context = self._format_exploration_context(exploration_result)
+
         return AGENT_PROMPT_TEMPLATE.format(
             task_prompt=subtask.prompt,
+            exploration_context=exploration_context,
             task_id=task_id,
             agent_id=agent_id,
             agent_count=self.agent_count,
         )
+
+    def _format_exploration_context(self, exploration_result: Optional[ExplorationResult]) -> str:
+        """Format exploration results for embedding in agent prompts."""
+        if not exploration_result:
+            return ""
+
+        sections = []
+
+        if exploration_result.context_summary:
+            sections.append(f"\n## Exploration Context\n{exploration_result.context_summary}")
+
+        if exploration_result.code_insights:
+            files_section = "\n## Relevant Files"
+            for insight in exploration_result.code_insights:
+                files_section += f"\n- **{insight.file_path}**: {insight.description}"
+                if insight.patterns:
+                    files_section += f" (patterns: {', '.join(insight.patterns)})"
+            sections.append(files_section)
+
+        if exploration_result.web_findings:
+            web_section = "\n## Reference Documentation"
+            for finding in exploration_result.web_findings:
+                web_section += f"\n- [{finding.source}]({finding.source}): {finding.summary}"
+            sections.append(web_section)
+
+        return "\n".join(sections) + "\n" if sections else ""
 
     def _spawn_agents_with_mcp(
         self,
@@ -874,8 +932,8 @@ class Orchestrator:
         for agent_id in task.agent_ids:
             requested_name = task.session_names[agent_id]
 
-            # Generate prompt with MCP instructions
-            prompt = self._generate_agent_prompt(subtask, task_id, agent_id)
+            # Generate prompt with MCP instructions and exploration context
+            prompt = self._generate_agent_prompt(subtask, task_id, agent_id, self._exploration_result)
 
             # Create spec with enhanced prompt
             self.client.create_spec(requested_name, prompt)

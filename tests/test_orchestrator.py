@@ -458,3 +458,219 @@ class TestAgentPromptTemplate:
         assert "finished_work" in AGENT_PROMPT_TEMPLATE
         assert "cast_vote" in AGENT_PROMPT_TEMPLATE
         assert "get_all_implementations" in AGENT_PROMPT_TEMPLATE
+
+    def test_prompt_template_has_exploration_placeholder(self):
+        """Template should have placeholder for exploration findings."""
+        from swarm_orchestrator.orchestrator import AGENT_PROMPT_TEMPLATE
+
+        assert "{exploration_context}" in AGENT_PROMPT_TEMPLATE
+
+
+# =============================================================================
+# Tests for exploration integration in orchestrator
+# =============================================================================
+
+class TestExplorationIntegration:
+    """Tests for exploration integration in the orchestration flow."""
+
+    @pytest.fixture
+    def orchestrator_with_exploration(self, mock_schaltwerk_client):
+        """Create an orchestrator with exploration enabled."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(agent_count=3, timeout=60)
+            yield orch
+
+    @pytest.fixture
+    def mock_exploration(self):
+        """Mock ExplorationExecutor."""
+        with patch("swarm_orchestrator.orchestrator.ExplorationExecutor") as mock:
+            yield mock
+
+    @pytest.fixture
+    def mock_decompose(self):
+        """Mock decompose_task."""
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock:
+            yield mock
+
+    def test_run_calls_explore_before_decompose(
+        self, orchestrator_with_exploration, mock_exploration, mock_decompose, sample_subtask
+    ):
+        """Orchestrator.run should call exploration before decomposition."""
+        from swarm_orchestrator.decomposer import ExplorationResult
+
+        # Use a complex query that triggers exploration
+        complex_query = "Implement user authentication with OAuth2"
+
+        # Setup mocks
+        mock_explorer = MagicMock()
+        mock_exploration.return_value = mock_explorer
+        mock_explorer.explore.return_value = ExplorationResult(
+            code_insights=[],
+            web_findings=[],
+            context_summary="Test context",
+        )
+        mock_decompose.return_value = DecompositionResult(
+            is_atomic=True,
+            subtasks=[sample_subtask],
+            original_query=complex_query,
+        )
+
+        # Mock process_subtask to avoid full flow
+        with patch.object(orchestrator_with_exploration, '_process_subtask_with_mcp') as mock_process:
+            mock_process.return_value = SubtaskResult(
+                subtask=sample_subtask,
+                sessions=["agent-0"],
+                vote_result=VoteResult(groups=[], winner=None, total_votes=0, consensus_reached=True, confidence=0),
+                winner_session="agent-0",
+                merged=False,
+            )
+
+            orchestrator_with_exploration.run(complex_query)
+
+        # Verify exploration was called
+        mock_explorer.explore.assert_called_once_with(complex_query)
+
+    def test_run_passes_exploration_to_decompose(
+        self, orchestrator_with_exploration, mock_exploration, sample_subtask
+    ):
+        """Decomposer should receive exploration results."""
+        from swarm_orchestrator.decomposer import ExplorationResult, CodeInsight
+
+        # Use a complex query that triggers exploration
+        complex_query = "Implement API caching with Redis"
+
+        exploration_result = ExplorationResult(
+            code_insights=[CodeInsight(file_path="src/main.py", description="Entry point")],
+            web_findings=[],
+            context_summary="Important context",
+        )
+
+        mock_explorer = MagicMock()
+        mock_exploration.return_value = mock_explorer
+        mock_explorer.explore.return_value = exploration_result
+
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=True,
+                subtasks=[sample_subtask],
+                original_query=complex_query,
+            )
+
+            with patch.object(orchestrator_with_exploration, '_process_subtask_with_mcp') as mock_process:
+                mock_process.return_value = SubtaskResult(
+                    subtask=sample_subtask,
+                    sessions=["a"],
+                    vote_result=VoteResult(groups=[], winner=None, total_votes=0, consensus_reached=True, confidence=0),
+                    winner_session="a",
+                    merged=False,
+                )
+
+                orchestrator_with_exploration.run(complex_query)
+
+            # Verify decompose received exploration context
+            mock_decompose.assert_called_once()
+            call_kwargs = mock_decompose.call_args.kwargs
+            assert "exploration_result" in call_kwargs
+            assert call_kwargs["exploration_result"] == exploration_result
+
+    def test_skip_exploration_flag(self, mock_schaltwerk_client, sample_subtask):
+        """Should skip exploration when flag is set."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(agent_count=3, skip_exploration=True)
+
+            with patch("swarm_orchestrator.orchestrator.ExplorationExecutor") as mock_exploration:
+                with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+                    mock_decompose.return_value = DecompositionResult(
+                        is_atomic=True,
+                        subtasks=[sample_subtask],
+                        original_query="test",
+                    )
+
+                    with patch.object(orch, '_process_subtask_with_mcp') as mock_process:
+                        mock_process.return_value = SubtaskResult(
+                            subtask=sample_subtask,
+                            sessions=["a"],
+                            vote_result=VoteResult(groups=[], winner=None, total_votes=0, consensus_reached=True, confidence=0),
+                            winner_session="a",
+                            merged=False,
+                        )
+
+                        orch.run("test")
+
+                    # Exploration should NOT be called
+                    mock_exploration.assert_not_called()
+
+    def test_exploration_findings_in_agent_prompt(
+        self, orchestrator_with_exploration, sample_subtask
+    ):
+        """Agent prompts should include exploration findings."""
+        from swarm_orchestrator.decomposer import ExplorationResult, CodeInsight
+
+        exploration_result = ExplorationResult(
+            code_insights=[CodeInsight(file_path="src/auth.py", description="Auth module")],
+            web_findings=[],
+            context_summary="Uses JWT for authentication",
+        )
+
+        prompt = orchestrator_with_exploration._generate_agent_prompt(
+            subtask=sample_subtask,
+            task_id="task-1",
+            agent_id="task-1-agent-0",
+            exploration_result=exploration_result,
+        )
+
+        # Should include exploration context
+        assert "Uses JWT for authentication" in prompt
+        assert "src/auth.py" in prompt
+
+    def test_exploration_findings_empty_when_skipped(
+        self, orchestrator_with_exploration, sample_subtask
+    ):
+        """Agent prompts should handle no exploration gracefully."""
+        prompt = orchestrator_with_exploration._generate_agent_prompt(
+            subtask=sample_subtask,
+            task_id="task-1",
+            agent_id="task-1-agent-0",
+            exploration_result=None,
+        )
+
+        # Should not crash and should have valid prompt
+        assert "task-1" in prompt
+        assert sample_subtask.prompt in prompt
+
+    def test_needs_exploration_auto_detection(self, mock_schaltwerk_client, sample_subtask):
+        """Should auto-detect if exploration is needed."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(agent_count=3)
+
+            with patch("swarm_orchestrator.orchestrator.needs_exploration") as mock_needs:
+                mock_needs.return_value = False
+
+                with patch("swarm_orchestrator.orchestrator.ExplorationExecutor") as mock_exploration:
+                    with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+                        mock_decompose.return_value = DecompositionResult(
+                            is_atomic=True,
+                            subtasks=[sample_subtask],
+                            original_query="fix typo",
+                        )
+
+                        with patch.object(orch, '_process_subtask_with_mcp') as mock_process:
+                            mock_process.return_value = SubtaskResult(
+                                subtask=sample_subtask,
+                                sessions=["a"],
+                                vote_result=VoteResult(groups=[], winner=None, total_votes=0, consensus_reached=True, confidence=0),
+                                winner_session="a",
+                                merged=False,
+                            )
+
+                            orch.run("fix typo in README")
+
+                        # needs_exploration was called to check
+                        mock_needs.assert_called_once_with("fix typo in README")
+                        # Exploration not called since needs_exploration returned False
+                        mock_exploration.assert_not_called()
