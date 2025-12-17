@@ -15,6 +15,13 @@ from .exploration import ExplorationExecutor, needs_exploration
 from .schaltwerk import SchaltwerkClient, get_client
 from .voting import VoteResult, find_consensus, format_vote_summary
 from .swarm_mcp.server import SwarmMCPServer
+from .config import SwarmConfig
+from .backends import (
+    WorktreeBackend,
+    AgentBackend,
+    SchaltwerkWorktreeBackend,
+    SchaltwerkAgentBackend,
+)
 
 
 # Agent prompt template with embedded MCP tool instructions
@@ -505,16 +512,36 @@ class Orchestrator:
         state_file: str = ".swarm/state.json",
         auto_merge: bool = False,
         skip_exploration: bool = False,
+        config: SwarmConfig | None = None,
+        worktree_backend: WorktreeBackend | None = None,
+        agent_backend: AgentBackend | None = None,
     ):
         self.agent_count = agent_count
         self.timeout = timeout
         self.console = console or Console()
+        self.config = config or SwarmConfig()
         self.client = get_client(timeout=timeout)
         self.swarm_server = SwarmMCPServer(persistence_path=state_file)
         self._poll_interval = 5  # seconds between completion checks
         self.auto_merge = auto_merge
         self.skip_exploration = skip_exploration
         self._exploration_result: Optional[ExplorationResult] = None
+
+        # Initialize backends based on config or explicit injection
+        self._worktree_backend = worktree_backend or self._create_worktree_backend()
+        self._agent_backend = agent_backend or self._create_agent_backend()
+
+    def _create_worktree_backend(self) -> WorktreeBackend:
+        """Create worktree backend based on config."""
+        if self.config.worktree_backend == "schaltwerk":
+            return SchaltwerkWorktreeBackend(self.client)
+        raise ValueError(f"Unknown worktree backend: {self.config.worktree_backend}")
+
+    def _create_agent_backend(self) -> AgentBackend:
+        """Create agent backend based on config."""
+        if self.config.agent_backend == "schaltwerk":
+            return SchaltwerkAgentBackend(self.client)
+        raise ValueError(f"Unknown agent backend: {self.config.agent_backend}")
 
     def _display_decomposition(self, decomposition: DecompositionResult) -> None:
         """Display enhanced decomposition details with scope information."""

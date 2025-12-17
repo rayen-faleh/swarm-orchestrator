@@ -14,6 +14,7 @@ from . import __version__
 from .orchestrator import Orchestrator
 from .decomposer import decompose_task
 from .installation import detect_installation_context
+from .config import SwarmConfig, load_config
 
 
 console = Console()
@@ -107,7 +108,37 @@ def main():
     is_flag=True,
     help="Skip codebase exploration phase (useful for simple tasks).",
 )
-def run(query: str, agents: int, timeout: int, auto_merge: bool, skip_exploration: bool):
+@click.option(
+    "--config", "-c",
+    type=click.Path(exists=True),
+    help="Path to config file (default: .swarm/config.json)",
+)
+@click.option(
+    "--worktree-backend",
+    type=click.Choice(["schaltwerk"]),
+    help="Backend for worktree management (overrides config)",
+)
+@click.option(
+    "--agent-backend",
+    type=click.Choice(["schaltwerk"]),
+    help="Backend for agent execution (overrides config)",
+)
+@click.option(
+    "--llm-backend",
+    type=click.Choice(["claude-cli", "anthropic-api"]),
+    help="Backend for LLM calls (overrides config)",
+)
+def run(
+    query: str,
+    agents: int,
+    timeout: int,
+    auto_merge: bool,
+    skip_exploration: bool,
+    config: str | None,
+    worktree_backend: str | None,
+    agent_backend: str | None,
+    llm_backend: str | None,
+):
     """Run a task through the multi-agent consensus system."""
     console.print(
         Panel.fit(
@@ -117,12 +148,24 @@ def run(query: str, agents: int, timeout: int, auto_merge: bool, skip_exploratio
     )
 
     try:
+        # Load config from file or use defaults
+        swarm_config = load_config(config)
+
+        # Override with CLI flags if provided
+        if worktree_backend:
+            swarm_config.worktree_backend = worktree_backend
+        if agent_backend:
+            swarm_config.agent_backend = agent_backend
+        if llm_backend:
+            swarm_config.llm_backend = llm_backend
+
         orchestrator = Orchestrator(
             agent_count=agents,
             timeout=timeout,
             console=console,
             auto_merge=auto_merge,
             skip_exploration=skip_exploration,
+            config=swarm_config,
         )
         result = orchestrator.run(query)
 
