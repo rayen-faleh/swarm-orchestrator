@@ -14,7 +14,7 @@ from . import __version__
 from .orchestrator import Orchestrator
 from .decomposer import decompose_task
 from .installation import detect_installation_context
-from .config import SwarmConfig, load_config, get_backend_choices, BACKENDS
+from .config import SwarmConfig, load_config, save_config, get_backend_choices, BACKENDS
 
 
 console = Console()
@@ -302,29 +302,67 @@ def status():
         raise SystemExit(1)
 
 
+def _prompt_backend_selection(
+    backend_type: str,
+    title: str,
+    is_interactive: bool,
+) -> str:
+    """Prompt user to select a backend option.
+
+    Args:
+        backend_type: Type of backend (worktree, agent, llm)
+        title: Display title for the prompt
+        is_interactive: Whether to prompt or use defaults
+
+    Returns:
+        Selected backend name
+    """
+    options = BACKENDS.get(backend_type, {})
+    option_list = list(options.keys())
+
+    if not is_interactive or not option_list:
+        return option_list[0] if option_list else ""
+
+    console.print(f"\n[bold]{title}[/]")
+    for i, (name, desc) in enumerate(options.items(), 1):
+        console.print(f"  [cyan]{i}[/]) {name}: [dim]{desc}[/]")
+
+    while True:
+        choice = click.prompt(
+            "Select option",
+            type=int,
+            default=1,
+        )
+        if 1 <= choice <= len(option_list):
+            return option_list[choice - 1]
+        console.print(f"[red]Invalid choice. Please enter 1-{len(option_list)}[/]")
+
+
 @main.command()
 @click.option(
     "--force", "-f",
     is_flag=True,
     help="Overwrite existing configuration",
 )
-def init(force: bool):
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    help="Use default values without prompting (for scripts)",
+)
+def init(force: bool, non_interactive: bool):
     """Initialize swarm orchestrator in the current project.
+
+    \b
+    Interactively prompts for backend selections:
+      - Worktree backend (git isolation)
+      - Agent backend (agent execution)
+      - LLM backend (task decomposition)
 
     \b
     Creates:
       .mcp.json           MCP server configuration for Claude Code
       .swarm/             Directory for state persistence
-      .swarm/config.json  Backend configuration (optional, create manually)
-
-    \b
-    Config file format (.swarm/config.json):
-      {
-        "worktree_backend": "schaltwerk",
-        "agent_backend": "schaltwerk",
-        "llm_backend": "claude-cli",
-        "llm_model": "claude-sonnet-4-20250514"
-      }
+      .swarm/config.json  Backend configuration with your selections
 
     Uses absolute paths so agents in worktrees can share state.
     """
@@ -349,15 +387,39 @@ def init(force: bool):
         console.print("   Use --force to overwrite existing configuration")
         return
 
+    # Determine if we should prompt interactively
+    is_interactive = not non_interactive
+
+    # Interactive backend selection
+    worktree_backend = _prompt_backend_selection(
+        "worktree", "Worktree Backend (git isolation)", is_interactive
+    )
+    agent_backend = _prompt_backend_selection(
+        "agent", "Agent Backend (agent execution)", is_interactive
+    )
+    llm_backend = _prompt_backend_selection(
+        "llm", "LLM Backend (task decomposition)", is_interactive
+    )
+
+    # Optional model selection for anthropic-api
+    llm_model = "claude-sonnet-4-20250514"
+    if llm_backend == "anthropic-api" and is_interactive:
+        console.print("\n[bold]Model Selection[/]")
+        console.print("  [cyan]1[/]) claude-sonnet-4-20250514 [dim](default, fast)[/]")
+        console.print("  [cyan]2[/]) claude-opus-4-20250514 [dim](most capable)[/]")
+        model_choice = click.prompt("Select model", type=int, default=1)
+        if model_choice == 2:
+            llm_model = "claude-opus-4-20250514"
+
     # Add swarm-orchestrator server config with absolute paths
     if "mcpServers" not in config:
         config["mcpServers"] = {}
 
     config["mcpServers"]["swarm-orchestrator"] = _get_swarm_mcp_config(repo_root)
 
-    # Write config
+    # Write MCP config
     mcp_config_path.write_text(json.dumps(config, indent=2))
-    console.print(f"   ✓ Created/updated {mcp_config_path}")
+    console.print(f"\n   ✓ Created/updated {mcp_config_path}")
 
     # Create .swarm directory
     swarm_dir.mkdir(exist_ok=True)
@@ -369,7 +431,23 @@ def init(force: bool):
         gitignore_path.write_text("state.json\n")
         console.print(f"   ✓ Created {gitignore_path}")
 
+    # Create swarm config with selected backends
+    swarm_config = SwarmConfig(
+        worktree_backend=worktree_backend,
+        agent_backend=agent_backend,
+        llm_backend=llm_backend,
+        llm_model=llm_model,
+    )
+    save_config(swarm_config)
+    console.print(f"   ✓ Created {swarm_dir}/config.json")
+
     console.print("\n[bold green]✅ Swarm orchestrator initialized![/]")
+    console.print(f"\n[dim]Configuration:[/]")
+    console.print(f"   Worktree: {worktree_backend}")
+    console.print(f"   Agent: {agent_backend}")
+    console.print(f"   LLM: {llm_backend}")
+    if llm_backend == "anthropic-api":
+        console.print(f"   Model: {llm_model}")
     console.print(f"\n[dim]State file:[/] {repo_root / '.swarm' / 'state.json'}")
     console.print("\n[dim]Next steps:[/]")
     console.print("   1. Restart Claude Code to load the new MCP server")

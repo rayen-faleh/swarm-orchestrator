@@ -34,7 +34,7 @@ class TestInitCommand:
     def test_init_creates_mcp_config(self, runner, temp_project):
         """Should create .mcp.json with swarm-orchestrator server config."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["init"])
+            result = runner.invoke(main, ["init", "--non-interactive"])
 
             assert result.exit_code == 0
             assert Path(".mcp.json").exists()
@@ -54,7 +54,7 @@ class TestInitCommand:
             }
             Path(".mcp.json").write_text(json.dumps(existing))
 
-            result = runner.invoke(main, ["init"])
+            result = runner.invoke(main, ["init", "--non-interactive"])
 
             assert result.exit_code == 0
 
@@ -80,7 +80,7 @@ class TestInitCommand:
                 )
 
             with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
-                result = runner.invoke(main, ["init"])
+                result = runner.invoke(main, ["init", "--non-interactive"])
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
@@ -104,7 +104,7 @@ class TestInitCommand:
                 )
 
             with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
-                result = runner.invoke(main, ["init"])
+                result = runner.invoke(main, ["init", "--non-interactive"])
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
@@ -131,7 +131,7 @@ class TestInitCommand:
                 )
 
             with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
-                result = runner.invoke(main, ["init"])
+                result = runner.invoke(main, ["init", "--non-interactive"])
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
@@ -143,7 +143,7 @@ class TestInitCommand:
     def test_init_creates_state_directory(self, runner, temp_project):
         """Should create .swarm directory for state persistence."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["init"])
+            result = runner.invoke(main, ["init", "--non-interactive"])
 
             assert result.exit_code == 0
             assert Path(".swarm").is_dir()
@@ -151,7 +151,7 @@ class TestInitCommand:
     def test_init_state_file_path_in_config(self, runner, temp_project):
         """Config should include absolute state file path in args."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["init"])
+            result = runner.invoke(main, ["init", "--non-interactive"])
 
             config = json.loads(Path(".mcp.json").read_text())
             server = config["mcpServers"]["swarm-orchestrator"]
@@ -203,7 +203,7 @@ class TestInitCommand:
                 )
 
             with patch("swarm_orchestrator.cli.detect_installation_context", mock_detect):
-                result = runner.invoke(main, ["init", "--force"])
+                result = runner.invoke(main, ["init", "--force", "--non-interactive"])
 
             assert result.exit_code == 0
 
@@ -215,10 +215,73 @@ class TestInitCommand:
     def test_init_shows_success_message(self, runner, temp_project):
         """Should show success message with instructions."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["init"])
+            result = runner.invoke(main, ["init", "--non-interactive"])
 
             assert result.exit_code == 0
             assert "initialized" in result.output.lower() or "success" in result.output.lower()
+
+    def test_init_interactive_prompts_for_backends(self, runner, temp_project):
+        """Interactive mode should prompt for all backend selections."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Simulate user selecting defaults for all prompts (input "1" for each)
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
+
+            assert result.exit_code == 0
+            # Should prompt for backends
+            assert "worktree" in result.output.lower()
+            assert "agent" in result.output.lower()
+            assert "llm" in result.output.lower()
+
+    def test_init_interactive_creates_config_with_selections(self, runner, temp_project):
+        """Interactive mode should create config.json with selected backends."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Select option 1 for each backend
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
+
+            assert result.exit_code == 0
+            assert Path(".swarm/config.json").exists()
+
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert "worktree_backend" in config
+            assert "agent_backend" in config
+            assert "llm_backend" in config
+
+    def test_init_interactive_anthropic_api_prompts_for_model(self, runner, temp_project):
+        """When anthropic-api is selected, should prompt for model preference."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Select: 1 (worktree), 1 (agent), 2 (anthropic-api), 1 (default model)
+            result = runner.invoke(main, ["init"], input="1\n1\n2\n1\n")
+
+            assert result.exit_code == 0
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["llm_backend"] == "anthropic-api"
+
+    def test_init_non_interactive_when_not_tty(self, runner, temp_project):
+        """Non-interactive mode should use defaults when stdin is not a tty."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Pass no input - should use defaults without prompting
+            result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+            # Should create config with defaults
+            if Path(".swarm/config.json").exists():
+                config = json.loads(Path(".swarm/config.json").read_text())
+                assert config["worktree_backend"] == "schaltwerk"
+                assert config["agent_backend"] == "schaltwerk"
+                assert config["llm_backend"] == "claude-cli"
+
+    def test_init_force_allows_reinit(self, runner, temp_project):
+        """--force with interactive should allow re-initialization."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First init
+            runner.invoke(main, ["init"], input="1\n1\n1\n")
+
+            # Second init with force
+            result = runner.invoke(main, ["init", "--force"], input="1\n1\n2\n1\n")
+
+            assert result.exit_code == 0
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["llm_backend"] == "anthropic-api"
 
 
 class TestRunCommandWithMCP:
@@ -337,5 +400,6 @@ class TestHelpDocumentation:
 
         assert result.exit_code == 0
         assert ".swarm/config.json" in result.output
-        assert "worktree_backend" in result.output
-        assert "llm_backend" in result.output
+        # Help text now describes interactive prompts instead of config format
+        assert "Worktree backend" in result.output
+        assert "LLM backend" in result.output
