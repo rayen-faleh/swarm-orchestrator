@@ -15,6 +15,7 @@ from swarm_orchestrator.orchestrator import (
 )
 from swarm_orchestrator.decomposer import Subtask, SubtaskScope, DecompositionResult
 from swarm_orchestrator.voting import VoteGroup, VoteResult
+from swarm_orchestrator.config import SwarmConfig
 
 
 def make_test_subtask(
@@ -469,6 +470,139 @@ class TestAgentPromptTemplate:
 # =============================================================================
 # Tests for exploration integration in orchestrator
 # =============================================================================
+
+# =============================================================================
+# Tests for backend factory methods
+# =============================================================================
+
+class TestBackendFactory:
+    """Tests for backend factory methods in Orchestrator."""
+
+    def test_create_agent_backend_cursor_cli(self):
+        """_create_agent_backend returns CursorCLIAgentBackend when config.agent_backend == 'cursor-cli'."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+
+        config = SwarmConfig(agent_backend="cursor-cli")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+            backend = orch._create_agent_backend()
+
+        assert isinstance(backend, CursorCLIAgentBackend)
+
+    def test_create_agent_backend_schaltwerk(self):
+        """_create_agent_backend returns SchaltwerkAgentBackend when config.agent_backend == 'schaltwerk'."""
+        from swarm_orchestrator.backends import SchaltwerkAgentBackend
+
+        config = SwarmConfig(agent_backend="schaltwerk")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+            backend = orch._create_agent_backend()
+
+        assert isinstance(backend, SchaltwerkAgentBackend)
+
+    def test_create_agent_backend_unknown_raises_value_error(self):
+        """_create_agent_backend raises ValueError for unknown backend."""
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            # Create orchestrator with valid config first, then test the factory directly
+            orch = Orchestrator()
+            # Manually change backend to invalid value to test factory
+            orch.config.agent_backend = "unknown-backend"
+
+            with pytest.raises(ValueError) as excinfo:
+                orch._create_agent_backend()
+
+            assert "Unknown agent backend" in str(excinfo.value)
+            assert "unknown-backend" in str(excinfo.value)
+
+    def test_orchestrator_uses_cursor_cli_backend_from_config(self):
+        """Orchestrator with SwarmConfig(agent_backend='cursor-cli') uses CursorCLIAgentBackend."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+
+        config = SwarmConfig(agent_backend="cursor-cli")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+
+        assert isinstance(orch._agent_backend, CursorCLIAgentBackend)
+
+
+class TestCursorCLIIntegration:
+    """Integration tests for cursor-cli backend with mocked subprocess."""
+
+    def test_cursor_cli_spawn_agent_with_mocked_subprocess(self, tmp_path):
+        """CursorCLIAgentBackend spawns cursor-agent process correctly."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+
+        backend = CursorCLIAgentBackend()
+        # Override worktree path lookup
+        backend._get_worktree_path = lambda name: str(tmp_path)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_popen.return_value = mock_process
+
+            session = backend.spawn_agent("test-session", "Test prompt")
+
+        assert session == "test-session"
+        mock_popen.assert_called_once()
+        call_args = mock_popen.call_args
+        assert call_args.kwargs["cwd"] == str(tmp_path)
+        assert "cursor-agent" in call_args.args[0]
+        # Verify prompt file was written
+        prompt_file = tmp_path / ".swarm-prompt.md"
+        assert prompt_file.exists()
+        assert prompt_file.read_text() == "Test prompt"
+
+    def test_cursor_cli_wait_for_completion_success(self, tmp_path):
+        """CursorCLIAgentBackend waits for process completion."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+
+        backend = CursorCLIAgentBackend()
+        backend._get_worktree_path = lambda name: str(tmp_path)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.communicate.return_value = (b"output", b"")
+            mock_process.returncode = 0
+            mock_popen.return_value = mock_process
+
+            backend.spawn_agent("test-session", "prompt")
+            results = backend.wait_for_completion(["test-session"], timeout=30)
+
+        assert "test-session" in results
+        assert results["test-session"].is_finished is True
+
+    def test_cursor_cli_end_to_end_workflow(self, tmp_path):
+        """End-to-end test: spawn, wait, get status with mocked subprocess."""
+        from swarm_orchestrator.backends import CursorCLIAgentBackend
+
+        backend = CursorCLIAgentBackend()
+        backend._get_worktree_path = lambda name: str(tmp_path)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.poll.return_value = None  # Still running initially
+            mock_process.communicate.return_value = (b"done", b"")
+            mock_process.returncode = 0
+            mock_popen.return_value = mock_process
+
+            # Spawn
+            session = backend.spawn_agent("agent-0", "Implement feature X")
+            assert session == "agent-0"
+
+            # Check status while running
+            mock_process.poll.return_value = None
+            status = backend.get_status("agent-0")
+            assert status.agent_id == "agent-0"
+            assert status.is_finished is False
+
+            # Wait for completion
+            mock_process.poll.return_value = 0
+            results = backend.wait_for_completion(["agent-0"], timeout=60)
+            assert results["agent-0"].is_finished is True
+
 
 class TestExplorationIntegration:
     """Tests for exploration integration in the orchestration flow."""
