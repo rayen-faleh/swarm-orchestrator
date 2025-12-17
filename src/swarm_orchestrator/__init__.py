@@ -22,6 +22,10 @@ from .decomposer import (
     validate_decomposition,
     SCOPE_LIMITS,
 )
+from .exploration import (
+    ExplorationExecutor,
+    needs_exploration,
+)
 from .orchestrator import (
     Orchestrator,
     OrchestrationResult,
@@ -40,6 +44,9 @@ __all__ = [
     "decompose_task",
     "validate_decomposition",
     "SCOPE_LIMITS",
+    # Exploration
+    "ExplorationExecutor",
+    "needs_exploration",
     # Orchestrator
     "Orchestrator",
     "OrchestrationResult",
