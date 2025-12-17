@@ -3,84 +3,348 @@ Task decomposer using Claude CLI to break complex tasks into subtasks.
 
 Uses the `claude` CLI for authentication, so no API key is needed -
 it uses your existing Claude Code login (Max subscription, etc.).
+
+Research-backed decomposition based on:
+- MAKER (arXiv:2511.09030): Maximal Agentic Decomposition for atomic subtasks
+- Agentless (arXiv:2407.01489): Hierarchical localization and scope reduction
+- Select-Then-Decompose (arXiv:2510.17922): Adaptive decomposition strategies
+- SWE-bench: Real-world software patch statistics (1.7 files, 32.8 LOC average)
 """
 
 import json
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
-DECOMPOSE_PROMPT = """You are a task decomposer for software engineering tasks.
+# Research-backed decomposition prompt
+DECOMPOSE_PROMPT = """You are a task decomposition expert for AI coding agents.
 
-Given a coding task, analyze it and determine if it should be:
-1. ATOMIC - A single, focused change (one feature, one bug fix, one refactor)
-2. COMPLEX - Multiple changes that should be done in sequence
+# Your Goal
+Break down the user's request into atomic, sequential subtasks that AI agents can implement with high accuracy.
 
-Output ONLY valid JSON (no markdown, no explanation):
+# Research-Backed Guidelines (IMPORTANT)
+
+## Atomicity Test (from MAKER research)
+A subtask is atomic when:
+> "A correct solution is likely to be sampled, and no incorrect solution is more likely."
+
+Ask yourself: "Can an AI agent complete this correctly >90% of the time with focused context?"
+
+## Optimal Scope Per Subtask (from SWE-bench & Agentless research)
+Real-world software patches average 1.7 files and 32.8 lines changed. Use this as guidance:
+
+| Metric              | Target    | Hard Limit | Rationale                     |
+|---------------------|-----------|------------|-------------------------------|
+| Files changed       | 1-2       | 3 max      | Maintains cognitive focus     |
+| Functions modified  | 1-3       | 5 max      | Manageable complexity         |
+| Lines of code       | 30-80     | 150 max    | Avoids context degradation    |
+| New dependencies    | 0-1       | 2 max      | Reduces integration risk      |
+
+If a subtask exceeds these limits, break it down further.
+
+## ReAct-Style Structure (Implement + Verify)
+Each subtask MUST include both implementation AND verification bundled together.
+Do NOT create separate "implement X" and "test X" subtasks.
+
+Good: "Add user authentication endpoint with tests for valid/invalid credentials"
+Bad: "Add user authentication endpoint" + "Write tests for authentication"
+
+## Hierarchical Localization (from Agentless research)
+Before detailing a subtask, identify:
+1. Which files will be modified/created
+2. Which functions/classes are involved
+3. What the specific changes are
+
+This helps agents focus and reduces context pollution.
+
+## Sequential Dependencies
+Subtasks execute SEQUENTIALLY. Each subtask:
+- Can assume all previous subtasks are complete and merged
+- Should build naturally on prior work
+- Must be independently verifiable
+
+Order from foundation → features → integration:
+1. Data models / types first
+2. Core logic second
+3. API / interface layer third
+4. Integration / glue code last
+
+# Output Format
+
+Output ONLY valid JSON (no markdown wrapping, no explanation outside JSON):
+
 {{
   "is_atomic": true or false,
+  "reasoning": "Brief explanation of decomposition strategy (1-2 sentences)",
   "subtasks": [
     {{
-      "id": "task-1",
-      "description": "Brief description of what to do",
-      "prompt": "The task description - WHAT to do, not HOW"
+      "id": "subtask-id",
+      "title": "Short descriptive title (3-6 words)",
+      "description": "What to implement and why (1-2 sentences)",
+      "scope": {{
+        "files": ["path/to/file1.py", "path/to/file2.py"],
+        "estimated_loc": 50,
+        "functions": ["function_name", "ClassName.method"]
+      }},
+      "implementation": "Specific implementation goal - WHAT not HOW",
+      "verification": "How to verify: tests to write, behavior to check",
+      "success_criteria": [
+        "Criterion 1: specific, measurable",
+        "Criterion 2: specific, measurable"
+      ],
+      "depends_on": []
+    }},
+    {{
+      "id": "subtask-2",
+      "depends_on": ["subtask-id"],
+      ...
     }}
   ]
 }}
 
-Rules:
-- For ATOMIC tasks: Return exactly one subtask with the original task as the prompt
-- For COMPLEX tasks: Break into 2-5 subtasks executed SEQUENTIALLY
-- IDs should be lowercase with hyphens (e.g., "add-auth", "fix-login")
+# Rules
 
-CRITICAL - Sequential Execution Model:
-- Subtasks are executed ONE AT A TIME, in order
-- Each subtask's winning implementation is MERGED before the next subtask starts
-- Later subtasks CAN and SHOULD depend on earlier subtasks' changes
-- Order matters: put foundational changes FIRST (e.g., "add data model" before "add API endpoints")
+1. **IDs**: lowercase with hyphens (e.g., "add-auth-endpoint", "fix-login-bug")
 
-Example of GOOD ordering:
-1. "add-user-model" - Create the User data model
-2. "add-auth-endpoints" - Add authentication API (depends on User model)
-3. "add-protected-routes" - Protect routes with auth middleware (depends on auth)
+2. **For ATOMIC tasks** (simple, single-focus):
+   - Return is_atomic: true
+   - Still provide full subtask structure with scope and verification
 
-Example of BAD ordering:
-1. "add-protected-routes" - ❌ Can't protect routes before auth exists!
-2. "add-auth-endpoints"
-3. "add-user-model"
+3. **For COMPLEX tasks**:
+   - Break into 2-5 subtasks maximum
+   - Each subtask must be atomic by the definition above
+   - If >5 subtasks needed, note this but proceed
 
-IMPORTANT - Prompt Guidelines:
-- The prompt should describe WHAT needs to be done, not HOW to do it
-- DO NOT include implementation suggestions, code snippets, or specific approaches
-- DO NOT prescribe which files to modify or what functions to create
-- Let the agents independently discover their own solutions
-- Keep prompts minimal and goal-focused
-- Later subtasks can reference that earlier work exists (e.g., "using the auth system")
+4. **Scope Estimation**:
+   - Be realistic about files and LOC
+   - When uncertain, estimate conservatively (smaller)
+   - List actual file paths if you can infer them from context
 
-Example of BAD prompt (too prescriptive):
-"Add a timeout parameter to the run function. Modify cli.py to accept --timeout flag, pass it to Orchestrator constructor, and update the Orchestrator class to use self.timeout in wait loops."
+5. **Implementation Field**:
+   - Describe WHAT needs to be done, not HOW
+   - DO NOT include code snippets or specific approaches
+   - Let agents discover their own solutions
 
-Example of GOOD prompt (goal-focused):
-"The --timeout flag is being ignored. Fix the timeout functionality so it works as expected."
+6. **Verification Field**:
+   - Always include testing requirements
+   - Specify what behavior to verify
+   - Include edge cases to handle
 
-TASK: {query}
+7. **Success Criteria**:
+   - Must be specific and measurable
+   - Include both functional and quality criteria
+   - "Tests pass" should always be one criterion
+
+# Examples
+
+## Example: Good Atomic Task
+{{
+  "is_atomic": true,
+  "reasoning": "Single endpoint addition with clear scope, estimated ~40 LOC",
+  "subtasks": [{{
+    "id": "add-health-endpoint",
+    "title": "Add health check endpoint",
+    "description": "Add a /health endpoint for monitoring service availability",
+    "scope": {{
+      "files": ["src/api/routes.py", "tests/test_routes.py"],
+      "estimated_loc": 40,
+      "functions": ["health_check", "test_health_endpoint"]
+    }},
+    "implementation": "Create GET /health endpoint returning service status and version",
+    "verification": "Test returns 200 with valid JSON, test handles edge cases",
+    "success_criteria": [
+      "GET /health returns 200 with status and version",
+      "Response time < 100ms",
+      "Unit tests pass"
+    ],
+    "depends_on": []
+  }}]
+}}
+
+## Example: Good Complex Task Decomposition
+{{
+  "is_atomic": false,
+  "reasoning": "User auth requires data model, core logic, then API layer - natural 3-subtask split",
+  "subtasks": [
+    {{
+      "id": "add-user-model",
+      "title": "Add User data model",
+      "description": "Create User model with authentication fields",
+      "scope": {{
+        "files": ["src/models/user.py", "tests/test_models.py"],
+        "estimated_loc": 60,
+        "functions": ["User", "test_user_creation", "test_password_hashing"]
+      }},
+      "implementation": "Create User model with email, hashed password, and timestamps",
+      "verification": "Test user creation, password hashing, and validation",
+      "success_criteria": [
+        "User model with required fields exists",
+        "Passwords are hashed, never stored plain",
+        "Unit tests pass"
+      ],
+      "depends_on": []
+    }},
+    {{
+      "id": "add-auth-service",
+      "title": "Add authentication service",
+      "description": "Implement login/logout logic using the User model",
+      "scope": {{
+        "files": ["src/services/auth.py", "tests/test_auth.py"],
+        "estimated_loc": 80,
+        "functions": ["AuthService.login", "AuthService.logout", "AuthService.verify_token"]
+      }},
+      "implementation": "Create AuthService with JWT-based login, logout, and token verification",
+      "verification": "Test valid login, invalid credentials, token expiry, logout",
+      "success_criteria": [
+        "Login returns valid JWT for correct credentials",
+        "Invalid credentials return appropriate error",
+        "Token verification works correctly",
+        "Unit tests pass"
+      ],
+      "depends_on": ["add-user-model"]
+    }},
+    {{
+      "id": "add-auth-endpoints",
+      "title": "Add auth API endpoints",
+      "description": "Expose authentication via REST API endpoints",
+      "scope": {{
+        "files": ["src/api/auth_routes.py", "tests/test_auth_routes.py"],
+        "estimated_loc": 70,
+        "functions": ["login_endpoint", "logout_endpoint", "me_endpoint"]
+      }},
+      "implementation": "Create POST /auth/login, POST /auth/logout, GET /auth/me endpoints",
+      "verification": "Integration tests for all endpoints with valid and invalid inputs",
+      "success_criteria": [
+        "All endpoints return correct status codes",
+        "Error responses are consistent",
+        "Integration tests pass"
+      ],
+      "depends_on": ["add-auth-service"]
+    }}
+  ]
+}}
+
+# User's Request
+
+{query}
+
+Analyze this request and produce the optimal decomposition following the guidelines above.
 """
 
 
 @dataclass
+class SubtaskScope:
+    """
+    Defines the expected scope of a subtask.
+
+    Based on research from SWE-bench and Agentless:
+    - Target: 1-2 files, 30-80 LOC
+    - Hard limits: 3 files max, 150 LOC max
+    """
+    files: list[str] = field(default_factory=list)
+    estimated_loc: int = 50  # Default to middle of target range
+    functions: list[str] = field(default_factory=list)
+
+    def is_within_limits(self) -> bool:
+        """Check if scope is within research-backed limits."""
+        return (
+            len(self.files) <= 3 and
+            self.estimated_loc <= 150 and
+            len(self.functions) <= 5
+        )
+
+    def get_warnings(self) -> list[str]:
+        """Get warnings if scope exceeds targets (but not hard limits)."""
+        warnings = []
+        if len(self.files) > 2:
+            warnings.append(f"Scope spans {len(self.files)} files (target: 1-2)")
+        if self.estimated_loc > 80:
+            warnings.append(f"Estimated {self.estimated_loc} LOC (target: 30-80)")
+        if len(self.functions) > 3:
+            warnings.append(f"Touches {len(self.functions)} functions (target: 1-3)")
+        return warnings
+
+
+@dataclass
 class Subtask:
+    """
+    A single subtask with scope and verification requirements.
+
+    Follows ReAct-style structure: each subtask includes both
+    implementation AND verification bundled together.
+    """
     id: str
+    title: str
     description: str
-    prompt: str
+    scope: SubtaskScope
+    implementation: str  # WHAT to do (not HOW)
+    verification: str  # How to verify (tests, criteria)
+    success_criteria: list[str]
+    depends_on: list[str] = field(default_factory=list)
+
+    @property
+    def prompt(self) -> str:
+        """
+        Generate the full prompt for agents.
+
+        This is the prompt that gets sent to competing agents.
+        """
+        scope_info = ""
+        if self.scope.files:
+            scope_info += f"- **Target files**: {', '.join(self.scope.files)}\n"
+        if self.scope.estimated_loc:
+            scope_info += f"- **Estimated scope**: ~{self.scope.estimated_loc} lines of code\n"
+        if self.scope.functions:
+            scope_info += f"- **Focus areas**: {', '.join(self.scope.functions)}\n"
+
+        criteria_list = '\n'.join(f'- [ ] {c}' for c in self.success_criteria)
+
+        return f"""# Task: {self.title}
+
+## Description
+{self.description}
+
+## Scope
+{scope_info}
+## Implementation Goal
+{self.implementation}
+
+## Verification Requirements
+{self.verification}
+
+## Success Criteria
+{criteria_list}
+
+## Important Guidelines
+- Stay within the specified scope - avoid modifying unrelated files
+- Include tests as part of your implementation
+- Commit when all success criteria are met
+- Prefer minimal, focused changes over large refactors
+"""
 
 
 @dataclass
 class DecompositionResult:
+    """Result of task decomposition."""
     is_atomic: bool
     subtasks: list[Subtask]
     original_query: str
+    reasoning: str = ""  # Explanation of decomposition strategy
+
+    def get_scope_warnings(self) -> dict[str, list[str]]:
+        """Get scope warnings for all subtasks."""
+        warnings = {}
+        for subtask in self.subtasks:
+            subtask_warnings = subtask.scope.get_warnings()
+            if subtask_warnings:
+                warnings[subtask.id] = subtask_warnings
+        return warnings
+
+    def total_estimated_loc(self) -> int:
+        """Get total estimated lines of code across all subtasks."""
+        return sum(st.scope.estimated_loc for st in self.subtasks)
 
 
 class DecomposerError(Exception):
@@ -166,10 +430,47 @@ class Decomposer:
         client = self._get_api_client()
         response = client.messages.create(
             model=self.model,
-            max_tokens=2048,
+            max_tokens=4096,  # Increased for structured decomposition output
             messages=[{"role": "user", "content": prompt}],
         )
         return response.content[0].text
+
+    def _parse_scope(self, scope_data: dict | None) -> SubtaskScope:
+        """Parse scope data into SubtaskScope dataclass."""
+        if not scope_data:
+            return SubtaskScope()
+
+        return SubtaskScope(
+            files=scope_data.get("files", []),
+            estimated_loc=scope_data.get("estimated_loc", 50),
+            functions=scope_data.get("functions", []),
+        )
+
+    def _parse_subtask(self, st: dict, index: int, original_query: str) -> Subtask:
+        """Parse a single subtask from JSON data."""
+        # Parse scope
+        scope = self._parse_scope(st.get("scope"))
+
+        # Get success criteria (ensure it's a list)
+        success_criteria = st.get("success_criteria", [])
+        if isinstance(success_criteria, str):
+            success_criteria = [success_criteria]
+
+        # Get depends_on (ensure it's a list)
+        depends_on = st.get("depends_on", [])
+        if isinstance(depends_on, str):
+            depends_on = [depends_on] if depends_on else []
+
+        return Subtask(
+            id=st.get("id", f"task-{index}"),
+            title=st.get("title", st.get("description", f"Task {index + 1}")[:50]),
+            description=st.get("description", ""),
+            scope=scope,
+            implementation=st.get("implementation", st.get("prompt", original_query)),
+            verification=st.get("verification", "Verify the implementation works correctly"),
+            success_criteria=success_criteria if success_criteria else ["Implementation complete", "Tests pass"],
+            depends_on=depends_on,
+        )
 
     def _parse_response(self, text: str, original_query: str) -> DecompositionResult:
         """Parse the JSON response from Claude."""
@@ -187,13 +488,9 @@ class Decomposer:
         if "is_atomic" not in data or "subtasks" not in data:
             raise DecomposerError(f"Missing required fields in response: {data}")
 
-        # Convert to dataclasses
+        # Convert to dataclasses with enhanced parsing
         subtasks = [
-            Subtask(
-                id=st.get("id", f"task-{i}"),
-                description=st.get("description", ""),
-                prompt=st.get("prompt", original_query),
-            )
+            self._parse_subtask(st, i, original_query)
             for i, st in enumerate(data["subtasks"])
         ]
 
@@ -201,6 +498,7 @@ class Decomposer:
             is_atomic=data["is_atomic"],
             subtasks=subtasks,
             original_query=original_query,
+            reasoning=data.get("reasoning", ""),
         )
 
 
@@ -216,3 +514,71 @@ def decompose_task(query: str, use_api: bool = False, timeout: int = 120) -> Dec
     """
     decomposer = Decomposer(use_api=use_api, timeout=timeout)
     return decomposer.decompose(query)
+
+
+def validate_decomposition(result: DecompositionResult) -> tuple[bool, list[str]]:
+    """
+    Validate a decomposition result against research-backed guidelines.
+
+    Returns:
+        Tuple of (is_valid, list_of_warnings)
+        - is_valid: True if all subtasks are within hard limits
+        - warnings: List of warning messages for soft limit violations
+    """
+    warnings = []
+    is_valid = True
+
+    # Check each subtask
+    for subtask in result.subtasks:
+        scope = subtask.scope
+
+        # Hard limit checks (fail validation)
+        if len(scope.files) > 3:
+            warnings.append(
+                f"[{subtask.id}] EXCEEDS LIMIT: {len(scope.files)} files (max: 3)"
+            )
+            is_valid = False
+
+        if scope.estimated_loc > 150:
+            warnings.append(
+                f"[{subtask.id}] EXCEEDS LIMIT: {scope.estimated_loc} LOC (max: 150)"
+            )
+            is_valid = False
+
+        if len(scope.functions) > 5:
+            warnings.append(
+                f"[{subtask.id}] EXCEEDS LIMIT: {len(scope.functions)} functions (max: 5)"
+            )
+            is_valid = False
+
+        # Soft limit checks (warnings only)
+        subtask_warnings = scope.get_warnings()
+        for w in subtask_warnings:
+            warnings.append(f"[{subtask.id}] {w}")
+
+    # Check total LOC across all subtasks
+    total_loc = result.total_estimated_loc()
+    if total_loc > 500:
+        warnings.append(
+            f"Total estimated LOC ({total_loc}) is high - consider if task should be split"
+        )
+
+    # Check for missing dependencies
+    subtask_ids = {st.id for st in result.subtasks}
+    for subtask in result.subtasks:
+        for dep in subtask.depends_on:
+            if dep not in subtask_ids:
+                warnings.append(
+                    f"[{subtask.id}] depends on unknown subtask: {dep}"
+                )
+                is_valid = False
+
+    return is_valid, warnings
+
+
+# Research-backed scope limits for reference
+SCOPE_LIMITS = {
+    "files": {"target": 2, "max": 3},
+    "estimated_loc": {"target": 80, "max": 150},
+    "functions": {"target": 3, "max": 5},
+}

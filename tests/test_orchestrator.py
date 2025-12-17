@@ -13,8 +13,37 @@ from swarm_orchestrator.orchestrator import (
     OrchestrationResult,
     run_swarm,
 )
-from swarm_orchestrator.decomposer import Subtask, DecompositionResult
+from swarm_orchestrator.decomposer import Subtask, SubtaskScope, DecompositionResult
 from swarm_orchestrator.voting import VoteGroup, VoteResult
+
+
+def make_test_subtask(
+    id: str = "test-task",
+    title: str = "Test Task",
+    description: str = "Test description",
+    implementation: str = "Implement the test",
+    verification: str = "Verify it works",
+    success_criteria: list[str] = None,
+    depends_on: list[str] = None,
+    files: list[str] = None,
+    estimated_loc: int = 50,
+    functions: list[str] = None,
+) -> Subtask:
+    """Helper to create test subtasks with defaults."""
+    return Subtask(
+        id=id,
+        title=title,
+        description=description,
+        scope=SubtaskScope(
+            files=files or ["src/test.py"],
+            estimated_loc=estimated_loc,
+            functions=functions or ["test_function"],
+        ),
+        implementation=implementation,
+        verification=verification,
+        success_criteria=success_criteria or ["Tests pass"],
+        depends_on=depends_on or [],
+    )
 
 
 class TestOrchestrator:
@@ -217,7 +246,7 @@ class TestOrchestrationResult:
                 merged=True,
             ),
             SubtaskResult(
-                subtask=Subtask(id="b", description="b", prompt="b"),
+                subtask=make_test_subtask(id="b", description="b"),
                 sessions=["b"],
                 vote_result=sample_vote_result_no_consensus,
                 winner_session=None,

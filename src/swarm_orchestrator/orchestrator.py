@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .decomposer import Subtask, decompose_task, DecompositionResult
+from .decomposer import Subtask, decompose_task, DecompositionResult, validate_decomposition
 from .schaltwerk import SchaltwerkClient, get_client
 from .voting import VoteResult, find_consensus, format_vote_summary
 from .swarm_mcp.server import SwarmMCPServer
@@ -493,6 +493,56 @@ class Orchestrator:
         self._poll_interval = 5  # seconds between completion checks
         self.auto_merge = auto_merge
 
+    def _display_decomposition(self, decomposition: DecompositionResult) -> None:
+        """Display enhanced decomposition details with scope information."""
+        if decomposition.is_atomic:
+            self.console.print("   → [green]Atomic task[/], no decomposition needed")
+            subtask = decomposition.subtasks[0]
+            self._display_subtask_scope(subtask, indent="   ")
+        else:
+            self.console.print(
+                f"   → Split into [cyan]{len(decomposition.subtasks)}[/] sequential subtasks"
+            )
+
+            # Show reasoning if provided
+            if decomposition.reasoning:
+                self.console.print(f"   [dim]Reasoning: {decomposition.reasoning}[/]")
+
+            # Show total estimated LOC
+            total_loc = decomposition.total_estimated_loc()
+            self.console.print(f"   [dim]Total estimated: ~{total_loc} LOC[/]")
+
+            # Display each subtask with scope
+            self.console.print("")
+            for i, st in enumerate(decomposition.subtasks, 1):
+                deps = f" [dim](depends on: {', '.join(st.depends_on)})[/]" if st.depends_on else ""
+                self.console.print(f"   [bold]{i}. {st.title}[/]{deps}")
+                self.console.print(f"      [dim]{st.description}[/]")
+                self._display_subtask_scope(st, indent="      ")
+                self.console.print("")
+
+        # Validate and show warnings
+        is_valid, warnings = validate_decomposition(decomposition)
+        if warnings:
+            self.console.print("   [yellow]⚠️  Scope warnings:[/]")
+            for w in warnings:
+                if "EXCEEDS LIMIT" in w:
+                    self.console.print(f"      [red]• {w}[/]")
+                else:
+                    self.console.print(f"      [yellow]• {w}[/]")
+
+    def _display_subtask_scope(self, subtask: Subtask, indent: str = "") -> None:
+        """Display scope information for a subtask."""
+        scope = subtask.scope
+        files_str = ", ".join(scope.files[:3])
+        if len(scope.files) > 3:
+            files_str += f" (+{len(scope.files) - 3} more)"
+
+        self.console.print(
+            f"{indent}[dim]Scope: ~{scope.estimated_loc} LOC | "
+            f"Files: {files_str or 'TBD'}[/]"
+        )
+
     def run(self, query: str) -> OrchestrationResult:
         """Execute the full orchestration workflow."""
         self.console.print(f"\n[bold blue]📋 Task:[/] {query}\n")
@@ -501,14 +551,8 @@ class Orchestrator:
         self.console.print("[bold]🔍 Decomposing task...[/]")
         decomposition = self._decompose(query)
 
-        if decomposition.is_atomic:
-            self.console.print("   → Atomic task, no decomposition needed")
-        else:
-            self.console.print(
-                f"   → Split into {len(decomposition.subtasks)} subtasks:"
-            )
-            for st in decomposition.subtasks:
-                self.console.print(f"      • {st.id}: {st.description}")
+        # Display enhanced decomposition details
+        self._display_decomposition(decomposition)
 
         # Step 2-5: Process each subtask SEQUENTIALLY
         # User must merge each winner before the next subtask starts
@@ -523,8 +567,18 @@ class Orchestrator:
             if total_subtasks > 1:
                 self.console.print(f"\n{'━' * 50}")
                 self.console.print(
-                    f"[bold]📦 Subtask {subtask_num}/{total_subtasks}[/]"
+                    f"[bold]📦 Subtask {subtask_num}/{total_subtasks}: {subtask.title}[/]"
                 )
+                self.console.print(f"   [dim]{subtask.description}[/]")
+                self._display_subtask_scope(subtask, indent="   ")
+
+                # Show success criteria
+                if subtask.success_criteria:
+                    self.console.print(f"   [dim]Success criteria:[/]")
+                    for criterion in subtask.success_criteria[:3]:  # Show first 3
+                        self.console.print(f"   [dim]  • {criterion}[/]")
+                    if len(subtask.success_criteria) > 3:
+                        self.console.print(f"   [dim]  • (+{len(subtask.success_criteria) - 3} more)[/]")
 
             result = self._process_subtask_with_mcp(subtask)
             subtask_results.append(result)

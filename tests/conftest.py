@@ -5,8 +5,37 @@ Shared pytest fixtures for swarm_orchestrator tests.
 import pytest
 from unittest.mock import MagicMock
 
-from swarm_orchestrator.decomposer import Subtask, DecompositionResult
+from swarm_orchestrator.decomposer import Subtask, SubtaskScope, DecompositionResult
 from swarm_orchestrator.voting import VoteGroup, VoteResult
+
+
+def make_test_subtask(
+    id: str = "test-task",
+    title: str = "Test Task",
+    description: str = "Test description",
+    implementation: str = "Implement the test",
+    verification: str = "Verify it works",
+    success_criteria: list[str] = None,
+    depends_on: list[str] = None,
+    files: list[str] = None,
+    estimated_loc: int = 50,
+    functions: list[str] = None,
+) -> Subtask:
+    """Helper to create test subtasks with defaults."""
+    return Subtask(
+        id=id,
+        title=title,
+        description=description,
+        scope=SubtaskScope(
+            files=files or ["src/test.py"],
+            estimated_loc=estimated_loc,
+            functions=functions or ["test_function"],
+        ),
+        implementation=implementation,
+        verification=verification,
+        success_criteria=success_criteria or ["Tests pass"],
+        depends_on=depends_on or [],
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -21,10 +50,14 @@ def reset_schaltwerk_singleton():
 @pytest.fixture
 def sample_subtask():
     """A sample subtask for testing."""
-    return Subtask(
+    return make_test_subtask(
         id="add-feature",
+        title="Add Feature",
         description="Add a new feature",
-        prompt="Implement the feature with proper error handling",
+        implementation="Implement the feature with proper error handling",
+        verification="Test the feature works correctly",
+        files=["src/feature.py", "tests/test_feature.py"],
+        estimated_loc=60,
     )
 
 
@@ -44,9 +77,9 @@ def sample_decomposition_complex():
     return DecompositionResult(
         is_atomic=False,
         subtasks=[
-            Subtask(id="task-1", description="First task", prompt="Do first thing"),
-            Subtask(id="task-2", description="Second task", prompt="Do second thing"),
-            Subtask(id="task-3", description="Third task", prompt="Do third thing"),
+            make_test_subtask(id="task-1", title="First Task", description="First task"),
+            make_test_subtask(id="task-2", title="Second Task", description="Second task", depends_on=["task-1"]),
+            make_test_subtask(id="task-3", title="Third Task", description="Third task", depends_on=["task-2"]),
         ],
         original_query="Do multiple things",
     )
