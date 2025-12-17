@@ -220,7 +220,7 @@ The tool returns:
 
 | `all_finished` | Action |
 |----------------|--------|
-| `false` | **WAIT and POLL** - Call `get_all_implementations` periodically until it succeeds |
+| `false` | **WAIT** using `sleep 30`, then poll `get_all_implementations` |
 | `true` | **PROCEED** to Phase 3 immediately |
 
 ---
@@ -228,24 +228,40 @@ The tool returns:
 ## Phase 2.5: Waiting for Other Agents
 
 > **IMPORTANT**: Other agents work CONCURRENTLY. You must wait for them.
+> **DO NOT** call `get_all_implementations` immediately after `finished_work` - use `sleep` first!
 
 ### Polling Strategy
-```
-while not all_finished:
-    wait 10-15 seconds
-    call get_all_implementations(task_id="{task_id}")
-    if success: break
+
+**CRITICAL**: Always sleep BEFORE polling, not after. This gives other agents time to finish.
+
+```bash
+# Step 1: Sleep first (REQUIRED - do not skip!)
+sleep 30
+
+# Step 2: Then check if all agents are done
+get_all_implementations(task_id="{task_id}")
+
+# Step 3: If not all finished, sleep and retry
+# Repeat until success
 ```
 
-### Example Polling Call
-```
+### Example Workflow
+```bash
+# After calling finished_work, WAIT before polling:
+sleep 30
+
+# Then call the MCP tool:
+get_all_implementations(task_id="{task_id}")
+
+# If it fails (others not done), sleep again and retry:
+sleep 30
 get_all_implementations(task_id="{task_id}")
 ```
 
 **If it returns an error** like `"Not all agents have finished yet (2/3)"`:
 - This is NORMAL - other agents are still working
-- Wait 10-15 seconds
-- Try again
+- Run `sleep 30` in your terminal
+- Try `get_all_implementations` again
 
 **If it returns success** with implementations:
 - All agents are done
@@ -406,16 +422,19 @@ Time    Agent-0          Agent-1          Agent-2
 ────────────────────────────────────────────────────
 0:00    Start impl       Start impl       Start impl
 0:45    Still working    Finish impl      Still working
-0:46                     Call finished_work (2 remaining)
-0:47                     Poll... waiting
+0:46                     finished_work (2 remaining)
+0:47                     sleep 30...
 1:00    Finish impl                       Still working
-1:01    Call finished_work (1 remaining)
-1:02    Poll... waiting  Poll... waiting
-1:30                                      Finish impl
-1:31                                      Call finished_work (0 remaining!)
-1:32    get_all_impl ✓   get_all_impl ✓   get_all_impl ✓
-1:33    Review...        Review...        Review...
-1:35    cast_vote        cast_vote        cast_vote
+1:01    finished_work (1 remaining)
+1:17                     get_all (fail)
+1:17                     sleep 30...
+1:31                                      Finish impl
+1:32    sleep 30...                       finished_work (0!)
+1:47                     get_all ✓
+1:48    (wakes up)                        sleep 30...
+2:02    get_all ✓
+2:18                                      get_all ✓
+2:20    Review & vote    Review & vote    Review & vote
 ────────────────────────────────────────────────────
         CONSENSUS REACHED - Winner determined
 ```
@@ -426,7 +445,7 @@ Time    Agent-0          Agent-1          Agent-2
 
 - [ ] **Phase 1**: Implement and commit your solution
 - [ ] **Phase 2**: Call `finished_work` with your diff
-- [ ] **Phase 2.5**: Poll `get_all_implementations` until it succeeds
+- [ ] **Phase 2.5**: Run `sleep 30`, then poll `get_all_implementations` (repeat until success)
 - [ ] **Phase 3**: Review all solutions and call `cast_vote`
 
 ---
