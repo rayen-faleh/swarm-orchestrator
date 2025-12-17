@@ -24,6 +24,11 @@ from .schaltwerk import (
     SchaltwerkWorktreeBackend,
     SchaltwerkAgentBackend,
 )
+from .llm import (
+    ClaudeCLIBackend,
+    AnthropicAPIBackend,
+    LLMBackendError,
+)
 
 __all__ = [
     # Abstract interfaces
@@ -38,4 +43,8 @@ __all__ = [
     # Schaltwerk implementations
     "SchaltwerkWorktreeBackend",
     "SchaltwerkAgentBackend",
+    # LLM implementations
+    "ClaudeCLIBackend",
+    "AnthropicAPIBackend",
+    "LLMBackendError",
 ]
