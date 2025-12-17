@@ -8,7 +8,13 @@ import json
 import pytest
 from pathlib import Path
 
-from swarm_orchestrator.config import SwarmConfig, load_config, save_config
+from swarm_orchestrator.config import (
+    SwarmConfig,
+    load_config,
+    save_config,
+    get_backend_choices,
+    BACKENDS,
+)
 
 
 class TestSwarmConfig:
@@ -202,3 +208,41 @@ class TestConfigIntegration:
         assert loaded.llm_backend == original.llm_backend
         assert loaded.llm_model == original.llm_model
         assert loaded.llm_timeout == original.llm_timeout
+
+
+class TestBackendRegistry:
+    """Tests for the centralized backend registry."""
+
+    def test_backends_has_all_types(self):
+        """BACKENDS should have worktree, agent, and llm entries."""
+        assert "worktree" in BACKENDS
+        assert "agent" in BACKENDS
+        assert "llm" in BACKENDS
+
+    def test_get_backend_choices_worktree(self):
+        """get_backend_choices returns worktree options."""
+        choices = get_backend_choices("worktree")
+        assert "schaltwerk" in choices
+
+    def test_get_backend_choices_agent(self):
+        """get_backend_choices returns agent options."""
+        choices = get_backend_choices("agent")
+        assert "schaltwerk" in choices
+
+    def test_get_backend_choices_llm(self):
+        """get_backend_choices returns LLM options."""
+        choices = get_backend_choices("llm")
+        assert "claude-cli" in choices
+        assert "anthropic-api" in choices
+
+    def test_get_backend_choices_unknown(self):
+        """get_backend_choices returns empty list for unknown type."""
+        choices = get_backend_choices("unknown")
+        assert choices == []
+
+    def test_backend_descriptions_exist(self):
+        """Each backend option should have a description."""
+        for backend_type, options in BACKENDS.items():
+            for name, desc in options.items():
+                assert desc, f"Missing description for {backend_type}/{name}"
+                assert len(desc) > 10, f"Description too short for {backend_type}/{name}"

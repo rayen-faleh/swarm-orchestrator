@@ -14,7 +14,7 @@ from . import __version__
 from .orchestrator import Orchestrator
 from .decomposer import decompose_task
 from .installation import detect_installation_context
-from .config import SwarmConfig, load_config
+from .config import SwarmConfig, load_config, get_backend_choices, BACKENDS
 
 
 console = Console()
@@ -82,7 +82,28 @@ def _get_swarm_mcp_config(repo_root: Path) -> dict:
 @click.group()
 @click.version_option(version=__version__)
 def main():
-    """🐝 Swarm Orchestrator - Multi-agent consensus using Claude Code"""
+    """🐝 Swarm Orchestrator - Multi-agent consensus using Claude Code
+
+    Run multiple AI agents in parallel on the same task and use voting
+    to select the best solution. Agents work in isolated git worktrees.
+
+    \b
+    Configuration:
+      Config file: .swarm/config.json (created by 'swarm init')
+      CLI flags override config file settings.
+
+    \b
+    Backends:
+      --worktree-backend  Git worktree isolation (schaltwerk)
+      --agent-backend     Agent execution (schaltwerk)
+      --llm-backend       LLM for decomposition (claude-cli, anthropic-api)
+
+    \b
+    Quick start:
+      swarm init           Initialize config in current project
+      swarm run "task"     Run agents on a task
+      swarm status         Show running sessions
+    """
     pass
 
 
@@ -111,22 +132,27 @@ def main():
 @click.option(
     "--config", "-c",
     type=click.Path(exists=True),
-    help="Path to config file (default: .swarm/config.json)",
+    help="Path to config file. Default: .swarm/config.json",
 )
 @click.option(
     "--worktree-backend",
-    type=click.Choice(["schaltwerk"]),
-    help="Backend for worktree management (overrides config)",
+    type=click.Choice(get_backend_choices("worktree")),
+    help="Worktree isolation backend. schaltwerk: Schaltwerk MCP for git worktrees (default).",
 )
 @click.option(
     "--agent-backend",
-    type=click.Choice(["schaltwerk"]),
-    help="Backend for agent execution (overrides config)",
+    type=click.Choice(get_backend_choices("agent")),
+    help="Agent execution backend. schaltwerk: Schaltwerk MCP to spawn Claude agents (default).",
 )
 @click.option(
     "--llm-backend",
-    type=click.Choice(["claude-cli", "anthropic-api"]),
-    help="Backend for LLM calls (overrides config)",
+    type=click.Choice(get_backend_choices("llm")),
+    help="LLM backend for task decomposition. claude-cli: Uses 'claude' CLI (default, requires Claude Code). anthropic-api: Uses Anthropic API (requires ANTHROPIC_API_KEY).",
+)
+@click.option(
+    "--llm-model",
+    default=None,
+    help="Model for anthropic-api backend (default: claude-sonnet-4-20250514). Ignored with claude-cli.",
 )
 def run(
     query: str,
@@ -138,8 +164,20 @@ def run(
     worktree_backend: str | None,
     agent_backend: str | None,
     llm_backend: str | None,
+    llm_model: str | None,
 ):
-    """Run a task through the multi-agent consensus system."""
+    """Run a task through the multi-agent consensus system.
+
+    \b
+    Backend Configuration:
+      Backends can be set via config file (.swarm/config.json) or CLI flags.
+      CLI flags override config file settings.
+
+    \b
+    LLM Backend Selection:
+      Use claude-cli (default) if you have Claude Code installed.
+      Use anthropic-api if you prefer direct API calls or don't have Claude Code.
+    """
     console.print(
         Panel.fit(
             f"[bold blue]🐝 Swarm Orchestrator v{__version__}[/]",
@@ -158,6 +196,8 @@ def run(
             swarm_config.agent_backend = agent_backend
         if llm_backend:
             swarm_config.llm_backend = llm_backend
+        if llm_model:
+            swarm_config.llm_model = llm_model
 
         orchestrator = Orchestrator(
             agent_count=agents,
@@ -271,8 +311,20 @@ def status():
 def init(force: bool):
     """Initialize swarm orchestrator in the current project.
 
-    Creates .mcp.json configuration for the swarm MCP server
-    and sets up the .swarm directory for state persistence.
+    \b
+    Creates:
+      .mcp.json           MCP server configuration for Claude Code
+      .swarm/             Directory for state persistence
+      .swarm/config.json  Backend configuration (optional, create manually)
+
+    \b
+    Config file format (.swarm/config.json):
+      {
+        "worktree_backend": "schaltwerk",
+        "agent_backend": "schaltwerk",
+        "llm_backend": "claude-cli",
+        "llm_model": "claude-sonnet-4-20250514"
+      }
 
     Uses absolute paths so agents in worktrees can share state.
     """

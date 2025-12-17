@@ -11,6 +11,37 @@ from pathlib import Path
 from typing import Any
 
 
+# Backend registry: centralized definitions with descriptions for help text
+BACKENDS = {
+    "worktree": {
+        "schaltwerk": "Uses Schaltwerk MCP for git worktree isolation (default)",
+    },
+    "agent": {
+        "schaltwerk": "Uses Schaltwerk MCP to spawn Claude agents (default)",
+    },
+    "llm": {
+        "claude-cli": "Uses 'claude' CLI tool - requires Claude Code installed (default)",
+        "anthropic-api": "Uses Anthropic API directly - requires ANTHROPIC_API_KEY env var",
+    },
+}
+
+
+def get_backend_choices(backend_type: str) -> list[str]:
+    """Get list of valid choices for a backend type."""
+    return list(BACKENDS.get(backend_type, {}).keys())
+
+
+def format_backend_help(backend_type: str, intro: str = "") -> str:
+    """Format help text for a backend type with all options described."""
+    options = BACKENDS.get(backend_type, {})
+    if not options:
+        return intro
+    lines = [intro] if intro else []
+    for name, desc in options.items():
+        lines.append(f"  {name}: {desc}")
+    return "\n".join(lines)
+
+
 @dataclass
 class SwarmConfig:
     """
@@ -35,9 +66,9 @@ class SwarmConfig:
 
     def __post_init__(self):
         """Validate configuration values."""
-        valid_worktree = {"schaltwerk"}
-        valid_agent = {"schaltwerk"}
-        valid_llm = {"claude-cli", "anthropic-api"}
+        valid_worktree = set(get_backend_choices("worktree"))
+        valid_agent = set(get_backend_choices("agent"))
+        valid_llm = set(get_backend_choices("llm"))
 
         if self.worktree_backend not in valid_worktree:
             raise ValueError(

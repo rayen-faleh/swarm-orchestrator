@@ -259,3 +259,83 @@ class TestServerCommand:
         result = runner.invoke(main, ["server", "--help"])
 
         assert "--state-file" in result.output
+
+
+class TestHelpDocumentation:
+    """Tests for CLI help text documentation."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    def test_main_help_shows_overview(self, runner):
+        """Main help should show configuration overview."""
+        result = runner.invoke(main, ["--help"])
+
+        assert result.exit_code == 0
+        assert "Multi-agent consensus" in result.output
+        assert "Configuration" in result.output
+        assert ".swarm/config.json" in result.output
+
+    def test_main_help_lists_backends(self, runner):
+        """Main help should mention backend options."""
+        result = runner.invoke(main, ["--help"])
+
+        assert result.exit_code == 0
+        assert "--worktree-backend" in result.output
+        assert "--agent-backend" in result.output
+        assert "--llm-backend" in result.output
+
+    def test_run_help_documents_worktree_backend(self, runner):
+        """Run help should document worktree backend options."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--worktree-backend" in result.output
+        assert "schaltwerk" in result.output.lower()
+
+    def test_run_help_documents_agent_backend(self, runner):
+        """Run help should document agent backend options."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--agent-backend" in result.output
+        assert "schaltwerk" in result.output.lower()
+
+    def test_run_help_documents_llm_backends(self, runner):
+        """Run help should document LLM backend options with descriptions."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--llm-backend" in result.output
+        assert "claude-cli" in result.output
+        assert "anthropic-api" in result.output
+        # Should explain when to use each
+        assert "Claude Code" in result.output or "CLI" in result.output
+        assert "API" in result.output
+
+    def test_run_help_documents_llm_model(self, runner):
+        """Run help should document --llm-model option."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--llm-model" in result.output
+        assert "anthropic-api" in result.output
+
+    def test_run_help_documents_config_file(self, runner):
+        """Run help should document config file option."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--config" in result.output
+        assert ".swarm/config.json" in result.output
+
+    def test_init_help_shows_config_format(self, runner):
+        """Init help should show config file format."""
+        result = runner.invoke(main, ["init", "--help"])
+
+        assert result.exit_code == 0
+        assert ".swarm/config.json" in result.output
+        assert "worktree_backend" in result.output
+        assert "llm_backend" in result.output
