@@ -267,3 +267,103 @@ class TestSchaltwerkClientSingleton:
             assert client1 is client2
             assert client2.timeout == 120
             mock_class.assert_called_once()  # Only created once
+
+
+class TestConfigFilePriority:
+    """Tests for config file discovery priority order."""
+
+    def test_explicit_path_takes_highest_priority(self, tmp_path):
+        """Explicit config_path should be used when file exists."""
+        # Create explicit config file
+        explicit_config = tmp_path / "my-config.json"
+        explicit_config.write_text('{"mcpServers": {"schaltwerk": {"command": "node"}}}')
+
+        client = SchaltwerkClient(config_path=str(explicit_config))
+        found_path = client._find_config_file()
+
+        assert found_path == str(explicit_config)
+
+    def test_project_mcp_json_over_global_settings(self, tmp_path, monkeypatch):
+        """Project .mcp.json should take priority over global settings.json."""
+        # Create project .mcp.json
+        project_config = tmp_path / ".mcp.json"
+        project_config.write_text('{"mcpServers": {"schaltwerk": {"command": "from-project"}}}')
+
+        # Create global settings.json
+        home = tmp_path / "home"
+        home.mkdir()
+        claude_dir = home / ".claude"
+        claude_dir.mkdir()
+        global_settings = claude_dir / "settings.json"
+        global_settings.write_text('{"mcpServers": {"schaltwerk": {"command": "from-global"}}}')
+
+        # Mock home directory and change to project dir
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(tmp_path)
+
+        client = SchaltwerkClient()
+        found_path = client._find_config_file()
+
+        # Should find project .mcp.json, not global settings.json
+        found = Path(found_path).resolve()
+        assert found == project_config.resolve()
+
+    def test_global_settings_json_fallback(self, tmp_path, monkeypatch):
+        """Should fall back to ~/.claude/settings.json when no .mcp.json found."""
+        # Create only global settings.json
+        home = tmp_path / "home"
+        home.mkdir()
+        claude_dir = home / ".claude"
+        claude_dir.mkdir()
+        global_settings = claude_dir / "settings.json"
+        global_settings.write_text('{"mcpServers": {"schaltwerk": {"command": "from-global"}}}')
+
+        # Create project dir without .mcp.json
+        project = tmp_path / "project"
+        project.mkdir()
+
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(project)
+
+        client = SchaltwerkClient()
+        found_path = client._find_config_file()
+
+        assert found_path == str(global_settings)
+
+    def test_file_not_found_when_no_config_exists(self, tmp_path, monkeypatch):
+        """Should raise FileNotFoundError with clear message when no config found."""
+        # Empty home without .claude dir
+        home = tmp_path / "home"
+        home.mkdir()
+
+        # Empty project without .mcp.json
+        project = tmp_path / "project"
+        project.mkdir()
+
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.chdir(project)
+
+        client = SchaltwerkClient()
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            client._find_config_file()
+
+        assert "MCP config" in str(exc_info.value)
+        assert ".mcp.json" in str(exc_info.value) or "settings.json" in str(exc_info.value)
+
+    def test_parent_directory_mcp_json_found(self, tmp_path, monkeypatch):
+        """Should find .mcp.json in parent directories."""
+        # Create .mcp.json in root
+        project_config = tmp_path / ".mcp.json"
+        project_config.write_text('{"mcpServers": {"schaltwerk": {"command": "node"}}}')
+
+        # Create nested subdirectory
+        nested = tmp_path / "src" / "deep" / "nested"
+        nested.mkdir(parents=True)
+
+        monkeypatch.chdir(nested)
+
+        client = SchaltwerkClient()
+        found_path = client._find_config_file()
+
+        assert found_path == str(project_config)

@@ -86,6 +86,30 @@ class TestMCPClientFromConfig:
         assert client.config.args == []
         assert client.config.env == {}
 
+    def test_loads_from_settings_json_format(self, tmp_path):
+        """Should load config from settings.json with mcpServers at top level."""
+        # This is the format used by ~/.claude/settings.json
+        config_data = {
+            "mcpServers": {
+                "schaltwerk": {
+                    "command": "npx",
+                    "args": ["-y", "@schaltwerk/mcp"],
+                    "env": {"REPO_PATH": "/path/to/repo"},
+                }
+            },
+            "permissions": {},  # Other settings.json fields should be ignored
+            "enabledFeatures": ["mcp"],
+        }
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text(json.dumps(config_data))
+
+        client = MCPClient.from_config_file(str(settings_file), "schaltwerk")
+
+        assert client.config.command == "npx"
+        assert client.config.args == ["-y", "@schaltwerk/mcp"]
+        assert client.config.env == {"REPO_PATH": "/path/to/repo"}
+
 
 class TestMCPClientLifecycle:
     """Tests for MCP client start/stop lifecycle."""

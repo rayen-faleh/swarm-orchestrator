@@ -73,12 +73,18 @@ class SchaltwerkClient:
         return self._mcp_client
 
     def _find_config_file(self) -> str:
-        """Find the .mcp.json config file."""
+        """Find the MCP config file.
+
+        Priority order:
+        1. Explicit config_path if it exists
+        2. .mcp.json in current directory or parent directories
+        3. ~/.claude/settings.json (global Claude Code settings)
+        """
         # Check explicit path first
         if Path(self.config_path).exists():
             return self.config_path
 
-        # Search up the directory tree
+        # Search up the directory tree for .mcp.json
         current = Path.cwd()
         while current != current.parent:
             config_file = current / ".mcp.json"
@@ -86,8 +92,14 @@ class SchaltwerkClient:
                 return str(config_file)
             current = current.parent
 
+        # Fallback to global ~/.claude/settings.json
+        global_settings = Path.home() / ".claude" / "settings.json"
+        if global_settings.exists():
+            return str(global_settings)
+
         raise FileNotFoundError(
-            f"Could not find MCP config file: {self.config_path}"
+            "Could not find MCP config file. Checked: .mcp.json (project), "
+            "~/.claude/settings.json (global)"
         )
 
     def _call_tool(self, tool_name: str, params: dict, timeout: float = 60.0) -> Any:
