@@ -18,6 +18,71 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+@dataclass
+class CodeInsight:
+    """
+    Represents a code analysis finding from exploration.
+
+    Captures relevant files, patterns, and dependencies discovered
+    during codebase exploration that can guide agent implementation.
+    """
+    file_path: str
+    description: str = ""
+    patterns: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialize to dict for prompt injection."""
+        return {
+            "file_path": self.file_path,
+            "description": self.description,
+            "patterns": self.patterns,
+            "dependencies": self.dependencies,
+        }
+
+
+@dataclass
+class WebResearchFinding:
+    """
+    Represents a web research finding from exploration.
+
+    Captures API documentation, examples, and best practices
+    discovered through web research.
+    """
+    source: str
+    summary: str = ""
+    relevance: str = ""
+
+    def to_dict(self) -> dict:
+        """Serialize to dict for prompt injection."""
+        return {
+            "source": self.source,
+            "summary": self.summary,
+            "relevance": self.relevance,
+        }
+
+
+@dataclass
+class ExplorationResult:
+    """
+    Container for exploration findings to pass to subagents.
+
+    Combines code insights, web research findings, and a synthesized
+    context summary that provides guidance for agent implementation.
+    """
+    code_insights: list[CodeInsight] = field(default_factory=list)
+    web_findings: list[WebResearchFinding] = field(default_factory=list)
+    context_summary: str = ""
+
+    def to_dict(self) -> dict:
+        """Serialize entire result to dict for prompt embedding."""
+        return {
+            "code_insights": [i.to_dict() for i in self.code_insights],
+            "web_findings": [f.to_dict() for f in self.web_findings],
+            "context_summary": self.context_summary,
+        }
+
+
 # Research-backed decomposition prompt
 DECOMPOSE_PROMPT = """You are a task decomposition expert for AI coding agents.
 

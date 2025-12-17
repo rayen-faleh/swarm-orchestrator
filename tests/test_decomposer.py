@@ -16,6 +16,9 @@ from swarm_orchestrator.decomposer import (
     validate_decomposition,
     DECOMPOSE_PROMPT,
     SCOPE_LIMITS,
+    CodeInsight,
+    WebResearchFinding,
+    ExplorationResult,
 )
 
 
@@ -541,3 +544,219 @@ class TestDecomposePrompt:
         assert any(term in DECOMPOSE_PROMPT for term in [
             "SWE-bench", "Agentless", "MAKER", "research", "Research"
         ])
+
+
+class TestCodeInsight:
+    """Tests for CodeInsight dataclass."""
+
+    def test_create_code_insight(self):
+        """Should create a CodeInsight with all fields."""
+        insight = CodeInsight(
+            file_path="src/auth.py",
+            description="Authentication module with JWT handling",
+            patterns=["singleton", "factory"],
+            dependencies=["pyjwt", "bcrypt"],
+        )
+
+        assert insight.file_path == "src/auth.py"
+        assert insight.description == "Authentication module with JWT handling"
+        assert insight.patterns == ["singleton", "factory"]
+        assert insight.dependencies == ["pyjwt", "bcrypt"]
+
+    def test_code_insight_defaults(self):
+        """Should have empty defaults for optional fields."""
+        insight = CodeInsight(file_path="src/main.py")
+
+        assert insight.file_path == "src/main.py"
+        assert insight.description == ""
+        assert insight.patterns == []
+        assert insight.dependencies == []
+
+    def test_code_insight_to_dict(self):
+        """Should serialize to dict correctly."""
+        insight = CodeInsight(
+            file_path="src/utils.py",
+            description="Utility functions",
+            patterns=["helper"],
+            dependencies=["requests"],
+        )
+
+        result = insight.to_dict()
+
+        assert result == {
+            "file_path": "src/utils.py",
+            "description": "Utility functions",
+            "patterns": ["helper"],
+            "dependencies": ["requests"],
+        }
+
+    def test_code_insight_to_dict_empty_fields(self):
+        """Should serialize empty fields correctly."""
+        insight = CodeInsight(file_path="src/empty.py")
+
+        result = insight.to_dict()
+
+        assert result == {
+            "file_path": "src/empty.py",
+            "description": "",
+            "patterns": [],
+            "dependencies": [],
+        }
+
+
+class TestWebResearchFinding:
+    """Tests for WebResearchFinding dataclass."""
+
+    def test_create_web_finding(self):
+        """Should create a WebResearchFinding with all fields."""
+        finding = WebResearchFinding(
+            source="https://docs.python.org/3/library/dataclasses.html",
+            summary="Dataclasses provide a decorator for auto-generating __init__",
+            relevance="High relevance for data model design",
+        )
+
+        assert finding.source == "https://docs.python.org/3/library/dataclasses.html"
+        assert "auto-generating" in finding.summary
+        assert finding.relevance == "High relevance for data model design"
+
+    def test_web_finding_defaults(self):
+        """Should have empty defaults for optional fields."""
+        finding = WebResearchFinding(source="https://example.com")
+
+        assert finding.source == "https://example.com"
+        assert finding.summary == ""
+        assert finding.relevance == ""
+
+    def test_web_finding_to_dict(self):
+        """Should serialize to dict correctly."""
+        finding = WebResearchFinding(
+            source="https://api.example.com/docs",
+            summary="API documentation for authentication",
+            relevance="Directly applicable to current task",
+        )
+
+        result = finding.to_dict()
+
+        assert result == {
+            "source": "https://api.example.com/docs",
+            "summary": "API documentation for authentication",
+            "relevance": "Directly applicable to current task",
+        }
+
+
+class TestExplorationResult:
+    """Tests for ExplorationResult dataclass."""
+
+    def test_create_exploration_result(self):
+        """Should create an ExplorationResult with all fields."""
+        code_insights = [
+            CodeInsight(file_path="src/auth.py", description="Auth module"),
+            CodeInsight(file_path="src/models.py", description="Data models"),
+        ]
+        web_findings = [
+            WebResearchFinding(source="https://docs.example.com", summary="API docs"),
+        ]
+
+        result = ExplorationResult(
+            code_insights=code_insights,
+            web_findings=web_findings,
+            context_summary="Authentication system uses JWT tokens stored in Redis",
+        )
+
+        assert len(result.code_insights) == 2
+        assert len(result.web_findings) == 1
+        assert "JWT" in result.context_summary
+
+    def test_exploration_result_defaults(self):
+        """Should have empty defaults for all fields."""
+        result = ExplorationResult()
+
+        assert result.code_insights == []
+        assert result.web_findings == []
+        assert result.context_summary == ""
+
+    def test_exploration_result_to_dict(self):
+        """Should serialize entire result to dict for prompt injection."""
+        result = ExplorationResult(
+            code_insights=[
+                CodeInsight(file_path="src/main.py", description="Entry point"),
+            ],
+            web_findings=[
+                WebResearchFinding(source="https://example.com", summary="Docs"),
+            ],
+            context_summary="Main entry point initializes the app",
+        )
+
+        d = result.to_dict()
+
+        assert "code_insights" in d
+        assert "web_findings" in d
+        assert "context_summary" in d
+        assert len(d["code_insights"]) == 1
+        assert d["code_insights"][0]["file_path"] == "src/main.py"
+        assert d["web_findings"][0]["source"] == "https://example.com"
+        assert d["context_summary"] == "Main entry point initializes the app"
+
+    def test_exploration_result_to_dict_empty(self):
+        """Should serialize empty result correctly."""
+        result = ExplorationResult()
+
+        d = result.to_dict()
+
+        assert d == {
+            "code_insights": [],
+            "web_findings": [],
+            "context_summary": "",
+        }
+
+    def test_exploration_result_to_dict_nested_serialization(self):
+        """Should correctly serialize nested dataclasses."""
+        result = ExplorationResult(
+            code_insights=[
+                CodeInsight(
+                    file_path="src/api.py",
+                    description="REST API endpoints",
+                    patterns=["REST", "MVC"],
+                    dependencies=["fastapi", "pydantic"],
+                ),
+            ],
+            web_findings=[
+                WebResearchFinding(
+                    source="https://fastapi.tiangolo.com",
+                    summary="FastAPI framework docs",
+                    relevance="Primary framework used",
+                ),
+            ],
+            context_summary="REST API built with FastAPI",
+        )
+
+        d = result.to_dict()
+
+        # Verify nested serialization
+        assert d["code_insights"][0]["patterns"] == ["REST", "MVC"]
+        assert d["code_insights"][0]["dependencies"] == ["fastapi", "pydantic"]
+        assert d["web_findings"][0]["relevance"] == "Primary framework used"
+
+    def test_exploration_result_large_findings_structure(self):
+        """Should handle multiple insights and findings."""
+        code_insights = [
+            CodeInsight(file_path=f"src/file{i}.py", description=f"File {i}")
+            for i in range(10)
+        ]
+        web_findings = [
+            WebResearchFinding(source=f"https://example{i}.com", summary=f"Finding {i}")
+            for i in range(5)
+        ]
+
+        result = ExplorationResult(
+            code_insights=code_insights,
+            web_findings=web_findings,
+            context_summary="Large exploration with many findings",
+        )
+
+        d = result.to_dict()
+
+        assert len(d["code_insights"]) == 10
+        assert len(d["web_findings"]) == 5
+        assert d["code_insights"][5]["file_path"] == "src/file5.py"
+        assert d["web_findings"][3]["source"] == "https://example3.com"
