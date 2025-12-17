@@ -5,6 +5,10 @@ This package defines abstract base classes for pluggable backends:
 - WorktreeBackend: Git worktree/isolation management
 - AgentBackend: Agent execution and lifecycle
 - LLMBackend: LLM calls for decomposition and exploration
+
+Concrete implementations:
+- SchaltwerkWorktreeBackend: Schaltwerk MCP-based worktree management
+- SchaltwerkAgentBackend: Schaltwerk MCP-based agent spawning
 """
 
 from .base import (
@@ -16,13 +20,22 @@ from .base import (
     AgentStatus,
     DecomposeResult,
 )
+from .schaltwerk import (
+    SchaltwerkWorktreeBackend,
+    SchaltwerkAgentBackend,
+)
 
 __all__ = [
+    # Abstract interfaces
     "WorktreeBackend",
     "AgentBackend",
     "LLMBackend",
+    # Data models
     "SessionInfo",
     "DiffResult",
     "AgentStatus",
     "DecomposeResult",
+    # Schaltwerk implementations
+    "SchaltwerkWorktreeBackend",
+    "SchaltwerkAgentBackend",
 ]
