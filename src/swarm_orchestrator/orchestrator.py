@@ -21,6 +21,7 @@ from .backends import (
     AgentBackend,
     SchaltwerkWorktreeBackend,
     SchaltwerkAgentBackend,
+    CursorCLIAgentBackend,
 )
 
 
@@ -541,6 +542,8 @@ class Orchestrator:
         """Create agent backend based on config."""
         if self.config.agent_backend == "schaltwerk":
             return SchaltwerkAgentBackend(self.client)
+        if self.config.agent_backend == "cursor-cli":
+            return CursorCLIAgentBackend()
         raise ValueError(f"Unknown agent backend: {self.config.agent_backend}")
 
     def _display_decomposition(self, decomposition: DecompositionResult) -> None:

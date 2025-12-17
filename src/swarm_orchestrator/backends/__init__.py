@@ -24,6 +24,7 @@ from .schaltwerk import (
     SchaltwerkWorktreeBackend,
     SchaltwerkAgentBackend,
 )
+from .cursor import CursorCLIAgentBackend
 from .llm import (
     ClaudeCLIBackend,
     AnthropicAPIBackend,
@@ -43,6 +44,8 @@ __all__ = [
     # Schaltwerk implementations
     "SchaltwerkWorktreeBackend",
     "SchaltwerkAgentBackend",
+    # Cursor CLI implementation
+    "CursorCLIAgentBackend",
     # LLM implementations
     "ClaudeCLIBackend",
     "AnthropicAPIBackend",
