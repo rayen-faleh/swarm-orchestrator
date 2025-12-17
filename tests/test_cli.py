@@ -403,3 +403,134 @@ class TestHelpDocumentation:
         # Help text now describes interactive prompts instead of config format
         assert "Worktree backend" in result.output
         assert "LLM backend" in result.output
+
+
+class TestConfigCommand:
+    """Tests for the 'swarm config' command group."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    @pytest.fixture
+    def temp_project(self, tmp_path):
+        """Create a temporary project directory."""
+        return tmp_path
+
+    def test_config_show_displays_current_settings(self, runner, temp_project):
+        """'swarm config show' should display current configuration."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code == 0
+            # Should show all config keys
+            assert "worktree_backend" in result.output or "worktree-backend" in result.output
+            assert "agent_backend" in result.output or "agent-backend" in result.output
+            assert "llm_backend" in result.output or "llm-backend" in result.output
+            # Should show current values
+            assert "schaltwerk" in result.output
+            assert "claude-cli" in result.output
+
+    def test_config_show_fails_without_init(self, runner, temp_project):
+        """'swarm config show' should fail gracefully if not initialized."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code != 0
+            # Should suggest running init
+            assert "init" in result.output.lower()
+
+    def test_config_set_updates_value(self, runner, temp_project):
+        """'swarm config set <key> <value>' should update config."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            # Change llm-backend to anthropic-api
+            result = runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+
+            assert result.exit_code == 0
+
+            # Verify change persisted
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["llm_backend"] == "anthropic-api"
+
+    def test_config_set_rejects_invalid_value(self, runner, temp_project):
+        """'swarm config set' should reject invalid values with helpful error."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "llm-backend", "invalid-backend"])
+
+            assert result.exit_code != 0
+            # Should list valid options
+            assert "claude-cli" in result.output
+            assert "anthropic-api" in result.output
+
+    def test_config_set_rejects_invalid_key(self, runner, temp_project):
+        """'swarm config set' should reject invalid keys."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "invalid-key", "value"])
+
+            assert result.exit_code != 0
+            # Should indicate invalid key
+            assert "invalid" in result.output.lower() or "unknown" in result.output.lower()
+
+    def test_config_set_fails_without_init(self, runner, temp_project):
+        """'swarm config set' should fail gracefully if not initialized."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            result = runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+
+            assert result.exit_code != 0
+            # Should suggest running init
+            assert "init" in result.output.lower()
+
+    def test_config_changes_persist(self, runner, temp_project):
+        """Config changes should persist and be reflected in subsequent 'config show'."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            # Change value
+            runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+
+            # Verify change is reflected in show
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code == 0
+            assert "anthropic-api" in result.output
+
+    def test_config_show_displays_valid_options(self, runner, temp_project):
+        """'swarm config show' should display valid options for each setting."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code == 0
+            # Should show valid options for llm-backend
+            assert "claude-cli" in result.output
+            assert "anthropic-api" in result.output
+
+    def test_config_set_llm_model(self, runner, temp_project):
+        """'swarm config set' should allow setting llm-model."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "llm-model", "claude-opus-4-20250514"])
+
+            assert result.exit_code == 0
+
+            # Verify change persisted
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["llm_model"] == "claude-opus-4-20250514"

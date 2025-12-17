@@ -454,6 +454,116 @@ def init(force: bool, non_interactive: bool):
     console.print("   2. Run [cyan]swarm run \"your task\"[/] to start")
 
 
+@main.group()
+def config():
+    """View and modify swarm configuration.
+
+    \b
+    Commands:
+      show    Display current configuration
+      set     Update a configuration value
+    """
+    pass
+
+
+# Map CLI keys (with hyphens) to config keys (with underscores)
+CONFIG_KEYS = {
+    "worktree-backend": ("worktree_backend", "worktree"),
+    "agent-backend": ("agent_backend", "agent"),
+    "llm-backend": ("llm_backend", "llm"),
+    "llm-model": ("llm_model", None),
+    "llm-timeout": ("llm_timeout", None),
+}
+
+
+def _config_exists() -> bool:
+    """Check if swarm config exists."""
+    return Path(".swarm/config.json").exists()
+
+
+@config.command("show")
+def config_show():
+    """Display current configuration in a formatted table."""
+    if not _config_exists():
+        console.print("[bold red]Error:[/] Swarm not initialized.")
+        console.print("Run [cyan]swarm init[/] first.")
+        raise SystemExit(1)
+
+    swarm_config = load_config()
+    config_dict = swarm_config.to_dict()
+
+    console.print("\n[bold]🐝 Swarm Configuration[/]\n")
+    console.print(f"   [dim]Config file:[/] .swarm/config.json\n")
+
+    from rich.table import Table
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Setting", style="white")
+    table.add_column("Current Value", style="green")
+    table.add_column("Valid Options", style="dim")
+
+    for cli_key, (config_key, backend_type) in CONFIG_KEYS.items():
+        current_value = config_dict.get(config_key, "")
+        if backend_type:
+            valid_options = ", ".join(get_backend_choices(backend_type))
+        else:
+            valid_options = "(any)" if config_key == "llm_model" else "(integer)"
+        table.add_row(cli_key, str(current_value), valid_options)
+
+    console.print(table)
+
+
+@config.command("set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str):
+    """Set a configuration value.
+
+    \b
+    KEY is one of: worktree-backend, agent-backend, llm-backend, llm-model, llm-timeout
+    VALUE must be valid for the given key.
+
+    \b
+    Examples:
+      swarm config set llm-backend anthropic-api
+      swarm config set llm-model claude-opus-4-20250514
+    """
+    if not _config_exists():
+        console.print("[bold red]Error:[/] Swarm not initialized.")
+        console.print("Run [cyan]swarm init[/] first.")
+        raise SystemExit(1)
+
+    if key not in CONFIG_KEYS:
+        valid_keys = ", ".join(CONFIG_KEYS.keys())
+        console.print(f"[bold red]Error:[/] Unknown config key '{key}'")
+        console.print(f"Valid keys: {valid_keys}")
+        raise SystemExit(1)
+
+    config_key, backend_type = CONFIG_KEYS[key]
+
+    # Validate value for backend keys
+    if backend_type:
+        valid_choices = get_backend_choices(backend_type)
+        if value not in valid_choices:
+            console.print(f"[bold red]Error:[/] Invalid value '{value}' for {key}")
+            console.print(f"Valid options: {', '.join(valid_choices)}")
+            raise SystemExit(1)
+
+    # Handle llm-timeout as integer
+    if config_key == "llm_timeout":
+        try:
+            value = int(value)
+        except ValueError:
+            console.print(f"[bold red]Error:[/] {key} must be an integer")
+            raise SystemExit(1)
+
+    # Load, update, and save config
+    swarm_config = load_config()
+    setattr(swarm_config, config_key, value)
+    save_config(swarm_config)
+
+    console.print(f"[green]✓[/] Set {key} = {value}")
+
+
 @main.command()
 @click.option(
     "--state-file",
