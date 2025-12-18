@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from .base import AgentBackend, AgentStatus
+from .cursor_auth import is_authenticated
 
 
 class CursorCLIAgentBackend(AgentBackend):
@@ -34,6 +35,20 @@ class CursorCLIAgentBackend(AgentBackend):
         # Fallback to current directory
         return os.getcwd()
 
+    def _check_auth(self) -> None:
+        """
+        Check authentication status before spawning agents.
+
+        Raises:
+            RuntimeError: If not authenticated, with guidance on how to authenticate.
+        """
+        if not is_authenticated():
+            raise RuntimeError(
+                "Cursor is not authenticated. Please authenticate using one of:\n"
+                "  1. Run 'swarm cursor login' for browser-based authentication\n"
+                "  2. Set CURSOR_API_KEY environment variable for API key authentication"
+            )
+
     def spawn_agent(self, session_name: str, prompt: str) -> str:
         """
         Spawn a cursor-agent process.
@@ -42,7 +57,11 @@ class CursorCLIAgentBackend(AgentBackend):
         - -p flag for prompt file
         - --force to skip confirmations
         - --output-format stream-json for structured output
+
+        Raises:
+            RuntimeError: If not authenticated via CURSOR_API_KEY or browser login.
         """
+        self._check_auth()
         worktree_path = self._get_worktree_path(session_name)
 
         # Write prompt to file

@@ -39,7 +39,8 @@ class TestCursorCLIAgentBackend:
         prompt = "Test prompt content"
 
         with patch.object(backend, "_get_worktree_path", return_value=worktree_path):
-            backend.spawn_agent("test-session", prompt)
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                backend.spawn_agent("test-session", prompt)
 
         # Verify prompt file was created
         prompt_file = tmp_path / ".swarm-prompt.md"
@@ -51,7 +52,8 @@ class TestCursorCLIAgentBackend:
         worktree_path = str(tmp_path)
 
         with patch.object(backend, "_get_worktree_path", return_value=worktree_path):
-            backend.spawn_agent("test-session", "prompt")
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                backend.spawn_agent("test-session", "prompt")
 
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args
@@ -70,7 +72,8 @@ class TestCursorCLIAgentBackend:
 
         with patch.object(backend, "_get_worktree_path", return_value=worktree_path):
             with patch.dict(os.environ, {"CURSOR_API_KEY": "test-key"}):
-                backend.spawn_agent("test-session", "prompt")
+                with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                    backend.spawn_agent("test-session", "prompt")
 
         call_args = mock_popen.call_args
         env = call_args[1].get("env", {})
@@ -81,7 +84,8 @@ class TestCursorCLIAgentBackend:
         worktree_path = str(tmp_path)
 
         with patch.object(backend, "_get_worktree_path", return_value=worktree_path):
-            backend.spawn_agent("test-session", "prompt")
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                backend.spawn_agent("test-session", "prompt")
 
         call_args = mock_popen.call_args
         assert call_args[1]["cwd"] == worktree_path
@@ -89,14 +93,16 @@ class TestCursorCLIAgentBackend:
     def test_spawn_agent_returns_agent_id(self, backend, mock_popen, tmp_path):
         """spawn_agent returns the session name as agent_id."""
         with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
-            result = backend.spawn_agent("test-session", "prompt")
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                result = backend.spawn_agent("test-session", "prompt")
 
         assert result == "test-session"
 
     def test_spawn_agent_stores_process(self, backend, mock_popen, tmp_path):
         """spawn_agent stores process in internal dict for tracking."""
         with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
-            backend.spawn_agent("test-session", "prompt")
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                backend.spawn_agent("test-session", "prompt")
 
         assert "test-session" in backend._processes
 
@@ -190,3 +196,64 @@ class TestCursorCLIAgentBackendDefaults:
         """Backend initializes with empty processes dict."""
         backend = CursorCLIAgentBackend()
         assert backend._processes == {}
+
+
+class TestCursorCLIAgentBackendAuth:
+    """Tests for authentication checking in CursorCLIAgentBackend."""
+
+    @pytest.fixture
+    def backend(self):
+        """Create a backend instance."""
+        return CursorCLIAgentBackend()
+
+    def test_spawn_agent_raises_error_when_not_authenticated(self, backend, tmp_path):
+        """spawn_agent raises clear error when not authenticated."""
+        with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=False):
+                with pytest.raises(RuntimeError) as exc_info:
+                    backend.spawn_agent("test-session", "prompt")
+                assert "not authenticated" in str(exc_info.value).lower()
+
+    def test_spawn_agent_error_mentions_both_auth_options(self, backend, tmp_path):
+        """Error message mentions both 'swarm cursor login' and CURSOR_API_KEY."""
+        with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
+            with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=False):
+                with pytest.raises(RuntimeError) as exc_info:
+                    backend.spawn_agent("test-session", "prompt")
+                error_msg = str(exc_info.value)
+                assert "CURSOR_API_KEY" in error_msg
+                assert "cursor" in error_msg.lower() and "login" in error_msg.lower()
+
+    def test_spawn_agent_proceeds_when_cursor_api_key_set(self, backend, tmp_path):
+        """spawn_agent proceeds when CURSOR_API_KEY environment variable is set."""
+        with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
+            with patch.dict(os.environ, {"CURSOR_API_KEY": "test-key"}):
+                with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                    with patch("subprocess.Popen") as mock_popen:
+                        mock_popen.return_value = MagicMock(pid=123)
+                        result = backend.spawn_agent("test-session", "prompt")
+                        assert result == "test-session"
+
+    def test_spawn_agent_proceeds_when_browser_auth_valid(self, backend, tmp_path):
+        """spawn_agent proceeds when browser-based auth is valid."""
+        with patch.object(backend, "_get_worktree_path", return_value=str(tmp_path)):
+            # No CURSOR_API_KEY, but is_authenticated returns True (browser auth)
+            with patch.dict(os.environ, {}, clear=True):
+                with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=True):
+                    with patch("subprocess.Popen") as mock_popen:
+                        mock_popen.return_value = MagicMock(pid=123)
+                        result = backend.spawn_agent("test-session", "prompt")
+                        assert result == "test-session"
+
+    def test_check_auth_uses_is_authenticated(self, backend):
+        """_check_auth method uses is_authenticated from cursor_auth."""
+        with patch("swarm_orchestrator.backends.cursor.is_authenticated") as mock_is_auth:
+            mock_is_auth.return_value = True
+            backend._check_auth()
+            mock_is_auth.assert_called_once()
+
+    def test_check_auth_raises_when_not_authenticated(self, backend):
+        """_check_auth raises RuntimeError when not authenticated."""
+        with patch("swarm_orchestrator.backends.cursor.is_authenticated", return_value=False):
+            with pytest.raises(RuntimeError):
+                backend._check_auth()
