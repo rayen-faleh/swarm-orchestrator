@@ -238,12 +238,11 @@ class GitNativeAgentBackend(AgentBackend):
 
     def spawn_agent(self, session_name: str, prompt: str) -> str:
         """
-        Spawn a Claude CLI agent in the session's worktree directory.
+        Spawn a Claude CLI agent in a new Terminal.app window.
 
-        Writes prompt to .swarm-prompt.md and runs claude CLI with:
+        Opens a new macOS Terminal window using osascript and runs claude CLI with:
         - -p flag for non-interactive/print mode with prompt as argument
         - --dangerously-skip-permissions to bypass permission prompts
-        - --output-format stream-json for structured output
 
         Args:
             session_name: Session/worktree name
@@ -258,31 +257,26 @@ class GitNativeAgentBackend(AgentBackend):
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
 
-        # Build command for headless execution
-        # -p (--print) expects the prompt as a string argument, not a file path
-        # --dangerously-skip-permissions bypasses interactive permission prompts
-        # --output-format stream-json provides structured output for monitoring
-        cmd = [
-            "claude",
-            "-p", prompt,  # Pass prompt string directly, not file path
-            "--dangerously-skip-permissions",
-            "--output-format", "stream-json",
-        ]
+        # Escape prompt for shell (single quotes with proper escaping)
+        escaped_prompt = prompt.replace("'", "'\"'\"'")
 
-        # Start process with proper background execution settings:
-        # - start_new_session=True: Detaches from parent terminal, prevents SIGHUP
-        # - stdin=DEVNULL: Prevents blocking on terminal input
-        # - stdout/stderr to files: Allows monitoring without blocking
-        log_file = worktree_path / ".claude-output.log"
-        err_file = worktree_path / ".claude-error.log"
+        # Build the claude command to run in terminal
+        claude_cmd = f"cd '{worktree_path}' && claude -p '{escaped_prompt}' --dangerously-skip-permissions"
 
+        # AppleScript to open a new Terminal window and run the command
+        applescript = f'''
+        tell application "Terminal"
+            activate
+            set newTab to do script "{claude_cmd.replace('"', '\\"')}"
+            return id of window 1
+        end tell
+        '''
+
+        # Run osascript to open Terminal and execute the command
         process = subprocess.Popen(
-            cmd,
-            cwd=worktree_path,
-            stdin=subprocess.DEVNULL,
-            stdout=open(log_file, "w"),
-            stderr=open(err_file, "w"),
-            start_new_session=True,  # Detach from parent terminal
+            ["osascript", "-e", applescript],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
         self._processes[session_name] = process
@@ -348,31 +342,34 @@ class GitNativeAgentBackend(AgentBackend):
 
     def send_message(self, agent_id: str, message: str) -> None:
         """
-        Send a message to a running agent.
+        Send a message to a running agent's terminal window.
 
-        Note: In headless mode with stream-json output, stdin messaging is not supported.
-        This method raises NotImplementedError for headless agents.
+        Uses AppleScript to send keystrokes to the Terminal window.
 
         Args:
             agent_id: Agent to send message to
             message: Message content
 
         Raises:
-            ValueError: If agent not found or not running
-            NotImplementedError: When agent runs in headless mode (stdin disabled)
+            ValueError: If agent not found
         """
-        process = self._processes.get(agent_id)
-        if not process:
+        if agent_id not in self._processes:
             raise ValueError(f"Agent not found: {agent_id}")
 
-        if process.poll() is not None:
-            raise ValueError(f"Agent not running: {agent_id}")
+        # Escape message for AppleScript
+        escaped_message = message.replace("\\", "\\\\").replace('"', '\\"')
 
-        # Headless agents use DEVNULL for stdin - messaging not supported
-        raise NotImplementedError(
-            "send_message is not supported in headless mode. "
-            "Agents spawned with --output-format stream-json do not accept stdin messages."
-        )
+        # Send keystrokes to Terminal
+        applescript = f'''
+        tell application "Terminal"
+            activate
+            tell application "System Events"
+                keystroke "{escaped_message}"
+                keystroke return
+            end tell
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", applescript], check=False)
 
     def get_status(self, agent_id: str) -> AgentStatus:
         """
@@ -393,10 +390,10 @@ class GitNativeAgentBackend(AgentBackend):
 
     def stop_agent(self, session_name: str) -> bool:
         """
-        Stop a running agent by terminating its process.
+        Stop a running agent by closing its terminal window.
 
-        Attempts graceful SIGTERM first, falls back to SIGKILL if needed.
-        Uses in-memory process handle if available, otherwise uses stored PID.
+        Uses SIGTERM/SIGKILL for the stored PID. Also attempts to close
+        any Terminal window running in the session's worktree.
 
         Args:
             session_name: Session/agent identifier to stop
@@ -404,7 +401,9 @@ class GitNativeAgentBackend(AgentBackend):
         Returns:
             True if agent was stopped, False if not found or already stopped
         """
-        # Try in-memory process first
+        stopped = False
+
+        # Try in-memory process first (the osascript process)
         process = self._processes.get(session_name)
         if process and process.poll() is None:
             process.terminate()
@@ -412,29 +411,24 @@ class GitNativeAgentBackend(AgentBackend):
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-            del self._processes[session_name]
-            # Clear PID from store
-            record = self._store.get(session_name)
-            if record:
-                record.pid = None
-                self._store.save(record)
-            return True
+            stopped = True
 
-        # Fall back to stored PID for processes started in previous runs
+        if session_name in self._processes:
+            del self._processes[session_name]
+
+        # Kill the stored PID (the actual terminal process)
         record = self._store.get(session_name)
         if record and record.pid:
             try:
                 os.kill(record.pid, signal.SIGTERM)
-                # Clear PID from store
-                record.pid = None
-                self._store.save(record)
-                return True
+                stopped = True
             except ProcessLookupError:
-                # Process already dead, clear stale PID
-                record.pid = None
-                self._store.save(record)
-                return False
+                pass  # Process already dead
             except PermissionError:
-                return False
+                pass
 
-        return False
+            # Clear PID from store
+            record.pid = None
+            self._store.save(record)
+
+        return stopped

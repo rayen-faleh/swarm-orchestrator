@@ -47,8 +47,8 @@ class TestGitNativeAgentBackend:
         assert prompt_file.exists()
         assert prompt_file.read_text() == prompt
 
-    def test_spawn_agent_runs_claude_cli(self, backend, mock_popen, tmp_path):
-        """spawn_agent runs claude CLI in the worktree directory."""
+    def test_spawn_agent_uses_osascript(self, backend, mock_popen, tmp_path):
+        """spawn_agent uses osascript to open Terminal.app."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
@@ -58,12 +58,11 @@ class TestGitNativeAgentBackend:
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
 
-        assert cmd[0] == "claude"
-        assert "-p" in cmd
-        assert "--dangerously-skip-permissions" in cmd
+        assert cmd[0] == "osascript"
+        assert "-e" in cmd
 
-    def test_spawn_agent_uses_headless_output_format(self, backend, mock_popen, tmp_path):
-        """spawn_agent uses --output-format stream-json for headless execution."""
+    def test_spawn_agent_applescript_contains_claude_command(self, backend, mock_popen, tmp_path):
+        """spawn_agent AppleScript contains claude CLI command."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
@@ -71,33 +70,25 @@ class TestGitNativeAgentBackend:
 
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
+        applescript = cmd[2]  # -e argument
 
-        assert "--output-format" in cmd
-        output_format_idx = cmd.index("--output-format")
-        assert cmd[output_format_idx + 1] == "stream-json"
+        assert "claude" in applescript
+        assert "-p" in applescript
+        assert "--dangerously-skip-permissions" in applescript
+        assert "Terminal" in applescript
 
-    def test_spawn_agent_writes_output_to_log_file(self, backend, mock_popen, tmp_path):
-        """spawn_agent redirects stdout to log file for background execution."""
+    def test_spawn_agent_applescript_includes_worktree_cd(self, backend, mock_popen, tmp_path):
+        """spawn_agent AppleScript changes to worktree directory."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
         backend.spawn_agent("test-session", "prompt")
 
         call_args = mock_popen.call_args
-        # stdout should be a file object, not PIPE (for background execution)
-        stdout_arg = call_args[1].get("stdout")
-        assert hasattr(stdout_arg, "name")
-        assert ".claude-output.log" in stdout_arg.name
+        cmd = call_args[0][0]
+        applescript = cmd[2]
 
-    def test_spawn_agent_runs_in_worktree_directory(self, backend, mock_popen, tmp_path):
-        """spawn_agent sets cwd to worktree path."""
-        worktree_path = tmp_path / "test-session"
-        worktree_path.mkdir(parents=True)
-
-        backend.spawn_agent("test-session", "prompt")
-
-        call_args = mock_popen.call_args
-        assert call_args[1]["cwd"] == worktree_path
+        assert f"cd '{worktree_path}'" in applescript
 
     def test_spawn_agent_returns_agent_id(self, backend, mock_popen, tmp_path):
         """spawn_agent returns the session name as agent_id."""
@@ -199,28 +190,24 @@ class TestGitNativeAgentBackend:
         assert result["agent-1"].is_finished is True
         assert result["agent-2"].is_finished is True
 
-    def test_send_message_raises_not_implemented_in_headless_mode(self, backend):
-        """send_message raises NotImplementedError in headless mode."""
+    def test_send_message_uses_osascript(self, backend):
+        """send_message uses osascript to send keystrokes to Terminal."""
         mock_process = MagicMock()
-        mock_process.poll.return_value = None  # Still running
         backend._processes["test-session"] = mock_process
 
-        with pytest.raises(NotImplementedError, match="headless mode"):
+        with patch("subprocess.run") as mock_run:
             backend.send_message("test-session", "test message")
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            cmd = call_args[0][0]
+            assert cmd[0] == "osascript"
+            assert "-e" in cmd
 
     def test_send_message_raises_for_unknown_agent(self, backend):
         """send_message raises ValueError for unknown agent."""
         with pytest.raises(ValueError, match="not found"):
             backend.send_message("unknown-agent", "message")
-
-    def test_send_message_raises_for_finished_agent(self, backend):
-        """send_message raises ValueError for finished agent."""
-        mock_process = MagicMock()
-        mock_process.poll.return_value = 0  # Finished
-        backend._processes["test-session"] = mock_process
-
-        with pytest.raises(ValueError, match="not running"):
-            backend.send_message("test-session", "message")
 
 
 class TestGitNativeAgentBackendDefaults:
@@ -254,8 +241,11 @@ class TestGitNativeAgentBackendWorktreePath:
             mock_popen.return_value = MagicMock(pid=123)
             backend.spawn_agent("my-session", "prompt")
 
+            # AppleScript embeds the cd command, so verify worktree path is in the script
             call_args = mock_popen.call_args
-            assert call_args[1]["cwd"] == session_dir
+            cmd = call_args[0][0]
+            applescript = cmd[2]
+            assert f"cd '{session_dir}'" in applescript
 
 
 class TestGitNativeAgentBackendStopAgent:
@@ -314,7 +304,8 @@ class TestGitNativeAgentBackendStopAgent:
         mock_process.poll.return_value = None
         backend._processes["test-session"] = mock_process
 
-        backend.stop_agent("test-session")
+        with patch("os.kill"):
+            backend.stop_agent("test-session")
 
         record = store.get("test-session")
         assert record.pid is None
@@ -332,7 +323,7 @@ class TestGitNativeAgentBackendStopAgent:
             mock_kill.side_effect = ProcessLookupError()
             result = backend.stop_agent("test-session")
 
-        # Returns False because process doesn't exist
+        # Returns False because process doesn't exist (only PID failed)
         assert result is False
         # But PID should be cleared
         record = store.get("test-session")
