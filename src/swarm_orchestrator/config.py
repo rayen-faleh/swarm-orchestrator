@@ -15,6 +15,7 @@ from typing import Any
 BACKENDS = {
     "worktree": {
         "schaltwerk": "Uses Schaltwerk MCP for git worktree isolation (default)",
+        "git-native": "Uses native git worktree commands without MCP dependency",
     },
     "agent": {
         "schaltwerk": "Uses Schaltwerk MCP to spawn Claude agents (default)",
