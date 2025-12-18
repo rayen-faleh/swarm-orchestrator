@@ -20,6 +20,7 @@ BACKENDS = {
     "agent": {
         "schaltwerk": "Uses Schaltwerk MCP to spawn Claude agents (default)",
         "cursor-cli": "Uses Cursor CLI for agent execution - requires cursor-agent installed and authentication via 'swarm cursor login' or CURSOR_API_KEY env var",
+        "git-native": "Uses native git worktrees with Claude CLI for agent execution without MCP dependency",
     },
     "llm": {
         "claude-cli": "Uses 'claude' CLI tool - requires Claude Code installed (default)",

@@ -275,3 +275,27 @@ class TestCursorCLIBackendConfig:
         """CursorCLIAgentBackend can be imported from backends package."""
         from swarm_orchestrator.backends import CursorCLIAgentBackend
         assert CursorCLIAgentBackend is not None
+
+
+class TestGitNativeAgentBackendConfig:
+    """Tests for git-native agent backend registration."""
+
+    def test_backends_agent_contains_git_native(self):
+        """BACKENDS['agent'] contains 'git-native' entry."""
+        assert "git-native" in BACKENDS["agent"]
+
+    def test_git_native_has_description(self):
+        """git-native has a descriptive string."""
+        desc = BACKENDS["agent"]["git-native"]
+        assert isinstance(desc, str)
+        assert len(desc) > 0
+
+    def test_swarm_config_validates_git_native(self):
+        """SwarmConfig(agent_backend='git-native') passes validation."""
+        config = SwarmConfig(agent_backend="git-native")
+        assert config.agent_backend == "git-native"
+
+    def test_get_backend_choices_agent_includes_git_native(self):
+        """get_backend_choices('agent') includes 'git-native'."""
+        choices = get_backend_choices("agent")
+        assert "git-native" in choices
