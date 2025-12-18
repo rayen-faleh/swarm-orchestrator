@@ -226,6 +226,23 @@ class AgentBackend(ABC):
         """
         ...
 
+    @abstractmethod
+    def stop_agent(self, session_name: str) -> bool:
+        """
+        Terminate a running agent.
+
+        Stops the agent process associated with the given session.
+        Implementations should handle cleanup of any associated resources
+        (terminal windows, background processes, etc.).
+
+        Args:
+            session_name: Session identifier whose agent should be stopped
+
+        Returns:
+            True if the agent was successfully stopped, False otherwise
+        """
+        ...
+
 
 class LLMBackend(ABC):
     """

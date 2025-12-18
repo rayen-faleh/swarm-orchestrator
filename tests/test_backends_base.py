@@ -198,6 +198,9 @@ class TestAgentBackend:
             def get_status(self, agent_id: str) -> AgentStatus:
                 return AgentStatus(agent_id=agent_id, is_finished=False)
 
+            def stop_agent(self, session_name: str) -> bool:
+                return True
+
         impl = CompleteImpl()
         assert isinstance(impl, AgentBackend)
 
@@ -245,6 +248,7 @@ class TestInterfaceDocstrings:
         assert AgentBackend.spawn_agent.__doc__ is not None
         assert AgentBackend.wait_for_completion.__doc__ is not None
         assert AgentBackend.send_message.__doc__ is not None
+        assert AgentBackend.stop_agent.__doc__ is not None
 
     def test_llm_backend_has_docstrings(self):
         """LLMBackend methods have docstrings."""
