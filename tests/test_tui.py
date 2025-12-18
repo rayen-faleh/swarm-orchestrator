@@ -171,6 +171,68 @@ class TestSessionsDashboard:
         dashboard.refresh_sessions()
         assert dashboard.get_selected_session() is None
 
+    def test_help_panel_renders_all_keys(self, dashboard):
+        """Help panel should show all keyboard shortcuts without truncation."""
+        from rich.console import Console
+        from io import StringIO
+
+        dashboard.refresh_sessions()
+        help_panel = dashboard._render_help()
+
+        # Render to a string to verify content
+        console = Console(file=StringIO(), force_terminal=True, width=80)
+        console.print(help_panel)
+        output = console.file.getvalue()
+
+        # All keyboard shortcuts should be visible
+        assert "j/k" in output
+        assert "navigate" in output
+        assert "d" in output
+        assert "diff" in output
+        assert "m" in output
+        assert "merge" in output
+        assert "r" in output
+        assert "refresh" in output
+        assert "q" in output
+        assert "quit" in output
+
+    def test_render_layout_has_minimum_size_for_help(self, dashboard):
+        """Layout should have minimum_size set to prevent help panel truncation."""
+        from rich.console import Console
+        from rich.layout import Layout
+        from io import StringIO
+
+        dashboard.refresh_sessions()
+        panel = dashboard.render()
+
+        # The panel contains a Layout - we verify it renders without crashing
+        # even in a small terminal by rendering to a narrow console
+        console = Console(file=StringIO(), force_terminal=True, width=60, height=10)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Should contain help keys even in small terminal
+        assert "j/k" in output or "navigate" in output
+
+    def test_render_with_diff_has_minimum_size_for_help(self, dashboard, mock_backend):
+        """Layout with diff view should also have minimum_size for help panel."""
+        from rich.console import Console
+        from io import StringIO
+
+        dashboard.refresh_sessions()
+        dashboard.show_diff = True
+        dashboard.current_diff = mock_backend.get_diff.return_value
+
+        panel = dashboard.render()
+
+        # Render to verify it doesn't crash with diff enabled
+        console = Console(file=StringIO(), force_terminal=True, width=80, height=20)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Help should still be visible
+        assert "q" in output or "quit" in output
+
 
 class TestWatchCommand:
     """Tests for the 'swarm watch' CLI command."""

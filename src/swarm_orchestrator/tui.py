@@ -109,17 +109,19 @@ class SessionsDashboard:
         """Render the dashboard as a Rich renderable."""
         layout = Layout()
 
+        # Help panel needs minimum 3 rows: 1 top border + 1 content + 1 bottom border
+        # Use minimum_size to allow growth but never truncate
         if self.show_diff and self.current_diff:
             layout.split_column(
                 Layout(name="sessions", ratio=1),
                 Layout(name="diff", ratio=2),
-                Layout(name="help", size=3),
+                Layout(name="help", size=3, minimum_size=3),
             )
             layout["diff"].update(self._render_diff())
         else:
             layout.split_column(
                 Layout(name="sessions", ratio=1),
-                Layout(name="help", size=3),
+                Layout(name="help", size=3, minimum_size=3),
             )
 
         layout["sessions"].update(self._render_sessions_table())
