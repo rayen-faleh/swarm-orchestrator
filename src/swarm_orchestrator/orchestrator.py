@@ -23,6 +23,8 @@ from .backends import (
     SchaltwerkAgentBackend,
     GitNativeWorktreeBackend,
     CursorCLIAgentBackend,
+    GitNativeWorktreeBackend,
+    GitNativeAgentBackend,
 )
 
 
@@ -547,6 +549,8 @@ class Orchestrator:
             return SchaltwerkAgentBackend(self.client)
         if self.config.agent_backend == "cursor-cli":
             return CursorCLIAgentBackend()
+        if self.config.agent_backend == "git-native":
+            return GitNativeAgentBackend()
         raise ValueError(f"Unknown agent backend: {self.config.agent_backend}")
 
     def _display_decomposition(self, decomposition: DecompositionResult) -> None:
@@ -850,9 +854,7 @@ class Orchestrator:
 
     def _cleanup_sessions(self, sessions: list[str], keep_session: str | None = None) -> None:
         """
-        Cancel and clean up sessions.
-
-        Fetches actual session names from Schaltwerk since it adds suffixes.
+        Cancel and clean up sessions using the configured worktree backend.
 
         Args:
             sessions: List of session name prefixes to clean up
@@ -863,15 +865,15 @@ class Orchestrator:
 
         self.console.print("   🧹 Cleaning up...")
 
-        # Fetch actual session list from Schaltwerk
-        all_sessions = self.client.get_session_list()
+        # Fetch actual session list from worktree backend
+        all_sessions = self._worktree_backend.list_sessions()
 
         for session_prefix in sessions:
             # Skip if this is the winner we want to keep
             if keep_session and session_prefix.startswith(keep_session):
                 continue
 
-            # Find the actual session name (Schaltwerk adds suffixes like -zd, -ft)
+            # Find the actual session name (some backends add suffixes)
             actual_session = None
             for s in all_sessions:
                 # Match by prefix - the actual name starts with our requested name
@@ -884,7 +886,7 @@ class Orchestrator:
                 continue
 
             try:
-                self.client.cancel_session(actual_session, force=True)
+                self._worktree_backend.delete_session(actual_session, force=True)
                 self.console.print(f"      ✓ Cancelled {actual_session}")
             except Exception as e:
                 error_str = str(e).lower()
@@ -951,7 +953,11 @@ class Orchestrator:
         subtask: Subtask,
         task_id: str,
     ) -> list[str]:
-        """Spawn agents with MCP coordination enabled."""
+        """Spawn agents with MCP coordination enabled.
+
+        Uses configured _worktree_backend for session/worktree creation
+        and _agent_backend for agent spawning.
+        """
         self.console.print(f"   🚀 Spawning {self.agent_count} agents...")
 
         # Register task with swarm server
@@ -968,22 +974,14 @@ class Orchestrator:
             # Generate prompt with MCP instructions and exploration context
             prompt = self._generate_agent_prompt(subtask, task_id, agent_id, self._exploration_result)
 
-            # Create spec with enhanced prompt
-            self.client.create_spec(requested_name, prompt)
+            # Create session/worktree using configured backend
+            session_info = self._worktree_backend.create_session(requested_name, prompt)
 
-            # Start agent - Schaltwerk may add a suffix to the name
-            result = self.client.start_agent(requested_name, skip_permissions=True)
+            # Spawn agent in the worktree using configured backend
+            self._agent_backend.spawn_agent(requested_name, prompt)
 
-            # Get the actual session name from the result (Schaltwerk adds suffix)
-            actual_name = requested_name
-            if isinstance(result, dict):
-                # Try common response field names for the actual session name
-                actual_name = (
-                    result.get("session_name") or
-                    result.get("name") or
-                    result.get("session") or
-                    requested_name
-                )
+            # Use the session name from the worktree backend
+            actual_name = session_info.name
 
             # Update task's session_names mapping with actual name
             task.session_names[agent_id] = actual_name
@@ -1077,7 +1075,7 @@ class Orchestrator:
             time.sleep(self._poll_interval)
 
     def _get_winner_session(self, task_id: str, winner_agent_id: str) -> str:
-        """Get the actual Schaltwerk session name for the winning agent."""
+        """Get the actual session name for the winning agent."""
         task = self.swarm_server.state.get_task(task_id)
         if not task:
             raise ValueError(f"Task {task_id} not found")
@@ -1085,8 +1083,8 @@ class Orchestrator:
         # Get the session name prefix we used
         session_prefix = task.session_names.get(winner_agent_id, winner_agent_id)
 
-        # Find the actual session name from Schaltwerk (it adds suffixes)
-        all_sessions = self.client.get_session_list()
+        # Find the actual session name from worktree backend (some add suffixes)
+        all_sessions = self._worktree_backend.list_sessions()
         for s in all_sessions:
             if s.name.startswith(session_prefix):
                 return s.name

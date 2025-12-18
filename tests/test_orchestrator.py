@@ -152,22 +152,24 @@ class TestOrchestrator:
         assert success is False
 
     def test_cleanup_sessions(self, orchestrator, mock_schaltwerk_client):
-        """Should cancel all provided sessions by finding actual names from Schaltwerk."""
-        from swarm_orchestrator.schaltwerk import SessionStatus
+        """Should cancel all provided sessions by finding actual names from worktree backend."""
+        from swarm_orchestrator.backends import SessionInfo
 
-        # Mock get_session_list to return sessions with suffixes (like real Schaltwerk)
-        mock_schaltwerk_client.get_session_list.return_value = [
-            SessionStatus(name="agent-1-ab", status="running", session_state="running", ready_to_merge=False, branch="b1"),
-            SessionStatus(name="agent-2-cd", status="running", session_state="running", ready_to_merge=False, branch="b2"),
+        # Mock worktree backend's list_sessions to return sessions with suffixes
+        mock_worktree = MagicMock()
+        mock_worktree.list_sessions.return_value = [
+            SessionInfo(name="agent-1-ab", status="running", branch="b1"),
+            SessionInfo(name="agent-2-cd", status="running", branch="b2"),
         ]
+        orchestrator._worktree_backend = mock_worktree
 
         sessions = ["agent-1", "agent-2"]
         orchestrator._cleanup_sessions(sessions)
 
-        assert mock_schaltwerk_client.cancel_session.call_count == 2
+        assert mock_worktree.delete_session.call_count == 2
         # Verify it used the actual names with suffixes
-        mock_schaltwerk_client.cancel_session.assert_any_call("agent-1-ab", force=True)
-        mock_schaltwerk_client.cancel_session.assert_any_call("agent-2-cd", force=True)
+        mock_worktree.delete_session.assert_any_call("agent-1-ab", force=True)
+        mock_worktree.delete_session.assert_any_call("agent-2-cd", force=True)
 
     def test_cleanup_empty_list(self, orchestrator, mock_schaltwerk_client):
         """Should handle empty session list."""
@@ -808,3 +810,145 @@ class TestExplorationIntegration:
                         mock_needs.assert_called_once_with("fix typo in README")
                         # Exploration not called since needs_exploration returned False
                         mock_exploration.assert_not_called()
+
+
+# =============================================================================
+# Tests for git-native backend integration
+# =============================================================================
+
+class TestGitNativeBackendFactory:
+    """Tests for git-native backend factory methods."""
+
+    def test_create_worktree_backend_git_native(self):
+        """_create_worktree_backend returns GitNativeWorktreeBackend when config.worktree_backend == 'git-native'."""
+        from swarm_orchestrator.backends import GitNativeWorktreeBackend
+
+        config = SwarmConfig(worktree_backend="git-native")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+            backend = orch._create_worktree_backend()
+
+        assert isinstance(backend, GitNativeWorktreeBackend)
+
+    def test_create_agent_backend_git_native(self):
+        """_create_agent_backend returns GitNativeAgentBackend when config.agent_backend == 'git-native'."""
+        from swarm_orchestrator.backends import GitNativeAgentBackend
+
+        config = SwarmConfig(agent_backend="git-native")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+            backend = orch._create_agent_backend()
+
+        assert isinstance(backend, GitNativeAgentBackend)
+
+    def test_orchestrator_uses_git_native_worktree_backend_from_config(self):
+        """Orchestrator with SwarmConfig(worktree_backend='git-native') uses GitNativeWorktreeBackend."""
+        from swarm_orchestrator.backends import GitNativeWorktreeBackend
+
+        config = SwarmConfig(worktree_backend="git-native")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+
+        assert isinstance(orch._worktree_backend, GitNativeWorktreeBackend)
+
+    def test_orchestrator_uses_git_native_agent_backend_from_config(self):
+        """Orchestrator with SwarmConfig(agent_backend='git-native') uses GitNativeAgentBackend."""
+        from swarm_orchestrator.backends import GitNativeAgentBackend
+
+        config = SwarmConfig(agent_backend="git-native")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+
+        assert isinstance(orch._agent_backend, GitNativeAgentBackend)
+
+
+class TestSpawnAgentsUsesBakedBackends:
+    """Tests that _spawn_agents_with_mcp uses the configured backends."""
+
+    @pytest.fixture
+    def mock_worktree_backend(self):
+        """Mock worktree backend."""
+        from swarm_orchestrator.backends import SessionInfo
+        backend = MagicMock()
+        backend.create_session.return_value = SessionInfo(
+            name="test-session",
+            status="running",
+            branch="test-branch",
+            worktree_path="/tmp/test",
+        )
+        backend.list_sessions.return_value = []
+        return backend
+
+    @pytest.fixture
+    def mock_agent_backend(self):
+        """Mock agent backend."""
+        backend = MagicMock()
+        backend.spawn_agent.return_value = "test-session"
+        return backend
+
+    def test_spawn_agents_uses_worktree_backend(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend, sample_subtask
+    ):
+        """_spawn_agents_with_mcp uses _worktree_backend.create_session."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                agent_count=2,
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._spawn_agents_with_mcp(sample_subtask, "task-123")
+
+        # Verify worktree backend was used to create sessions
+        assert mock_worktree_backend.create_session.call_count == 2
+
+    def test_spawn_agents_uses_agent_backend(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend, sample_subtask
+    ):
+        """_spawn_agents_with_mcp uses _agent_backend.spawn_agent."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                agent_count=2,
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._spawn_agents_with_mcp(sample_subtask, "task-123")
+
+        # Verify agent backend was used to spawn agents
+        assert mock_agent_backend.spawn_agent.call_count == 2
+
+    def test_cleanup_sessions_uses_worktree_backend(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend
+    ):
+        """_cleanup_sessions uses _worktree_backend.delete_session."""
+        from swarm_orchestrator.backends import SessionInfo
+
+        # Setup mock to return sessions
+        mock_worktree_backend.list_sessions.return_value = [
+            SessionInfo(name="agent-0", status="running", branch="b1"),
+            SessionInfo(name="agent-1", status="running", branch="b2"),
+        ]
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._cleanup_sessions(["agent-0", "agent-1"])
+
+        # Verify worktree backend was used to delete sessions
+        assert mock_worktree_backend.delete_session.call_count == 2
+        mock_worktree_backend.delete_session.assert_any_call("agent-0", force=True)
+        mock_worktree_backend.delete_session.assert_any_call("agent-1", force=True)
