@@ -24,7 +24,7 @@ from .schaltwerk import (
     SchaltwerkWorktreeBackend,
     SchaltwerkAgentBackend,
 )
-from .git_native import GitNativeWorktreeBackend
+from .git_native import GitNativeWorktreeBackend, GitNativeAgentBackend
 from .cursor import CursorCLIAgentBackend
 from .llm import (
     ClaudeCLIBackend,
@@ -45,8 +45,9 @@ __all__ = [
     # Schaltwerk implementations
     "SchaltwerkWorktreeBackend",
     "SchaltwerkAgentBackend",
-    # Git-native implementation
+    # Git-native implementations
     "GitNativeWorktreeBackend",
+    "GitNativeAgentBackend",
     # Cursor CLI implementation
     "CursorCLIAgentBackend",
     # LLM implementations
