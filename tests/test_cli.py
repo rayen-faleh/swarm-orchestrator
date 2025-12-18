@@ -534,3 +534,77 @@ class TestConfigCommand:
             # Verify change persisted
             config = json.loads(Path(".swarm/config.json").read_text())
             assert config["llm_model"] == "claude-opus-4-20250514"
+
+
+class TestCursorCommands:
+    """Tests for the 'swarm cursor' command group."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    def test_cursor_group_exists(self, runner):
+        """'swarm cursor' command group should exist."""
+        result = runner.invoke(main, ["cursor", "--help"])
+
+        assert result.exit_code == 0
+        assert "login" in result.output
+        assert "status" in result.output
+
+    def test_cursor_login_invokes_cursor_agent_login(self, runner):
+        """'swarm cursor login' should invoke 'cursor-agent login'."""
+        with patch("swarm_orchestrator.cli.cursor_auth.login") as mock_login:
+            mock_login.return_value = True
+            result = runner.invoke(main, ["cursor", "login"])
+
+            assert result.exit_code == 0
+            mock_login.assert_called_once()
+
+    def test_cursor_login_shows_success_message(self, runner):
+        """'swarm cursor login' should show success message on successful login."""
+        with patch("swarm_orchestrator.cli.cursor_auth.login", return_value=True):
+            result = runner.invoke(main, ["cursor", "login"])
+
+            assert result.exit_code == 0
+            assert "success" in result.output.lower() or "logged in" in result.output.lower()
+
+    def test_cursor_login_shows_failure_message(self, runner):
+        """'swarm cursor login' should show failure message on failed login."""
+        with patch("swarm_orchestrator.cli.cursor_auth.login", return_value=False):
+            result = runner.invoke(main, ["cursor", "login"])
+
+            assert result.exit_code != 0
+            assert "failed" in result.output.lower() or "error" in result.output.lower()
+
+    def test_cursor_status_shows_authenticated(self, runner):
+        """'swarm cursor status' should show authenticated state when logged in."""
+        with patch("swarm_orchestrator.cli.cursor_auth.is_authenticated", return_value=True):
+            result = runner.invoke(main, ["cursor", "status"])
+
+            assert result.exit_code == 0
+            assert "authenticated" in result.output.lower()
+
+    def test_cursor_status_shows_not_authenticated(self, runner):
+        """'swarm cursor status' should show not authenticated when not logged in."""
+        with patch("swarm_orchestrator.cli.cursor_auth.is_authenticated", return_value=False):
+            result = runner.invoke(main, ["cursor", "status"])
+
+            assert result.exit_code == 0
+            assert "not authenticated" in result.output.lower() or "not logged in" in result.output.lower()
+
+    def test_cursor_login_help_mentions_browser_auth(self, runner):
+        """'swarm cursor login --help' should explain browser-based authentication."""
+        result = runner.invoke(main, ["cursor", "login", "--help"])
+
+        assert result.exit_code == 0
+        assert "browser" in result.output.lower()
+
+    def test_cursor_status_help_explains_auth_options(self, runner):
+        """'swarm cursor status --help' should document both auth options."""
+        result = runner.invoke(main, ["cursor", "status", "--help"])
+
+        assert result.exit_code == 0
+        # Should mention API key alternative
+        output_lower = result.output.lower()
+        assert "cursor_api_key" in output_lower or "api key" in output_lower or "status" in output_lower

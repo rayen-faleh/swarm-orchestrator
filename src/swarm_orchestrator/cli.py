@@ -15,6 +15,7 @@ from .orchestrator import Orchestrator
 from .decomposer import decompose_task
 from .installation import detect_installation_context
 from .config import SwarmConfig, load_config, save_config, get_backend_choices, BACKENDS
+from .backends import cursor_auth
 
 
 console = Console()
@@ -594,6 +595,57 @@ def _check_initialized() -> bool:
         return "swarm-orchestrator" in config.get("mcpServers", {})
     except (json.JSONDecodeError, KeyError):
         return False
+
+
+@main.group()
+def cursor():
+    """Cursor authentication commands.
+
+    \b
+    Manage Cursor CLI agent authentication for the cursor-cli backend.
+    Use 'login' for interactive browser-based authentication or
+    set CURSOR_API_KEY environment variable for automated workflows.
+    """
+    pass
+
+
+@cursor.command()
+def login():
+    """Authenticate with Cursor via browser-based login.
+
+    \b
+    Opens your browser to authenticate with Cursor. This is the
+    recommended method for interactive use. For CI/CD or automated
+    workflows, use CURSOR_API_KEY environment variable instead.
+    """
+    console.print("\n[bold]🔑 Cursor Login[/]\n")
+    console.print("Opening browser for authentication...")
+
+    if cursor_auth.login():
+        console.print("\n[bold green]✅ Successfully logged in to Cursor![/]")
+    else:
+        console.print("\n[bold red]❌ Login failed.[/]")
+        console.print("[dim]Make sure cursor-agent is installed and try again.[/]")
+        raise SystemExit(1)
+
+
+@cursor.command()
+def status():
+    """Check Cursor authentication status.
+
+    \b
+    Shows whether you are currently authenticated with Cursor.
+    Authentication can be via browser login or CURSOR_API_KEY env var.
+    """
+    console.print("\n[bold]🔑 Cursor Auth Status[/]\n")
+
+    if cursor_auth.is_authenticated():
+        console.print("[green]✓[/] Authenticated")
+    else:
+        console.print("[yellow]✗[/] Not authenticated")
+        console.print("\n[dim]To authenticate, run:[/]")
+        console.print("  swarm cursor login")
+        console.print("\n[dim]Or set CURSOR_API_KEY environment variable.[/]")
 
 
 if __name__ == "__main__":
