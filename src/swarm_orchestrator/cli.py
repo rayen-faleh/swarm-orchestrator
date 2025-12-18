@@ -801,5 +801,35 @@ def merge(session_name: str, message: str | None):
         raise SystemExit(1)
 
 
+@main.command()
+def watch():
+    """Launch interactive TUI dashboard for session management.
+
+    \b
+    Opens a live-updating terminal UI that shows all sessions
+    and allows keyboard-driven navigation and actions.
+
+    \b
+    Keyboard controls:
+      j/↓    Move selection down
+      k/↑    Move selection up
+      d      Toggle diff preview for selected session
+      m      Merge selected session
+      r      Refresh session list
+      q      Quit dashboard
+    """
+    from .tui import SessionsDashboard
+
+    try:
+        backend = _get_worktree_backend()
+        dashboard = SessionsDashboard(backend=backend)
+        dashboard.run()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     main()
