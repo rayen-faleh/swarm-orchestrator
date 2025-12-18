@@ -188,6 +188,52 @@ class TestCursorCLIAgentBackend:
         with pytest.raises(NotImplementedError):
             backend.send_message("test-session", "message")
 
+    def test_stop_agent_running_process(self, backend):
+        """stop_agent terminates a running process."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None  # Still running
+        backend._processes["test-session"] = mock_process
+
+        result = backend.stop_agent("test-session")
+
+        assert result is True
+        mock_process.terminate.assert_called_once()
+        mock_process.wait.assert_called_once_with(timeout=5)
+        assert "test-session" not in backend._processes
+
+    def test_stop_agent_uses_sigkill_on_timeout(self, backend):
+        """stop_agent falls back to SIGKILL when terminate times out."""
+        import subprocess
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.wait.side_effect = [subprocess.TimeoutExpired("cmd", 5), None]
+        backend._processes["test-session"] = mock_process
+
+        result = backend.stop_agent("test-session")
+
+        assert result is True
+        mock_process.terminate.assert_called_once()
+        mock_process.kill.assert_called_once()
+        assert "test-session" not in backend._processes
+
+    def test_stop_agent_returns_false_for_unknown_session(self, backend):
+        """stop_agent returns False for unknown session."""
+        result = backend.stop_agent("unknown-session")
+
+        assert result is False
+
+    def test_stop_agent_returns_false_for_already_stopped(self, backend):
+        """stop_agent returns False when process already finished."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = 0  # Already finished
+        backend._processes["test-session"] = mock_process
+
+        result = backend.stop_agent("test-session")
+
+        assert result is False
+        mock_process.terminate.assert_not_called()
+        assert "test-session" not in backend._processes
+
 
 class TestCursorCLIAgentBackendDefaults:
     """Tests for default configuration."""

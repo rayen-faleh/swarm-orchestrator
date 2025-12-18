@@ -153,3 +153,35 @@ class CursorCLIAgentBackend(AgentBackend):
             agent_id=agent_id,
             is_finished=is_finished,
         )
+
+    def stop_agent(self, session_name: str) -> bool:
+        """
+        Stop a running cursor-agent process.
+
+        Terminates the subprocess using SIGTERM with SIGKILL fallback.
+
+        Args:
+            session_name: Session/agent identifier to stop
+
+        Returns:
+            True if agent was stopped, False if not found or already stopped
+        """
+        process = self._processes.get(session_name)
+        if not process:
+            return False
+
+        if process.poll() is not None:
+            # Already finished
+            del self._processes[session_name]
+            return False
+
+        # Terminate with SIGTERM, fallback to SIGKILL
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+        del self._processes[session_name]
+        return True
