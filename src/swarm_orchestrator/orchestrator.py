@@ -2,6 +2,8 @@
 Main orchestrator that coordinates decomposition, agent spawning, and voting.
 """
 
+import select
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -994,12 +996,46 @@ class Orchestrator:
 
         return sessions
 
+    def _check_key_press(self) -> str | None:
+        """Non-blocking check for keyboard input. Returns key if pressed, None otherwise."""
+        try:
+            import termios
+            import tty
+
+            # Check if stdin has data available
+            if not select.select([sys.stdin], [], [], 0)[0]:
+                return None
+
+            # Save terminal settings
+            old_settings = termios.tcgetattr(sys.stdin)
+            try:
+                tty.setcbreak(sys.stdin.fileno())
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    return sys.stdin.read(1)
+            finally:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        except (ImportError, termios.error, OSError):
+            # Not a TTY or terminal functions unavailable
+            pass
+        return None
+
+    def _show_watch_dashboard(self) -> None:
+        """Show the interactive watch dashboard, returning when user presses 'q'."""
+        from .tui import SessionsDashboard
+
+        dashboard = SessionsDashboard(backend=self._worktree_backend)
+        dashboard.run()
+        # After returning from dashboard, show resume message
+        self.console.print("\n   [dim]Resumed run command. Press 'w' to open dashboard again.[/]")
+
     def _wait_for_mcp_completion(self, task_id: str) -> None:
         """Wait for all agents to signal completion via MCP.
 
         No timeout - agents can take as long as needed to implement their solutions.
+        Press 'w' to toggle the watch dashboard while waiting.
         """
         self.console.print("   ⏳ Waiting for agents to finish (no timeout - agents work at their own pace)...")
+        self.console.print("   [dim]Press 'w' to open watch dashboard[/]")
 
         start_time = time.time()
         last_status = {}
@@ -1023,6 +1059,11 @@ class Orchestrator:
                 self.console.print(f"      All agents finished! (took {elapsed}s)")
                 return
 
+            # Check for 'w' key to toggle watch dashboard
+            key = self._check_key_press()
+            if key == "w":
+                self._show_watch_dashboard()
+
             # Periodic heartbeat to show we're still waiting
             if time.time() - last_heartbeat > heartbeat_interval:
                 elapsed = int(time.time() - start_time)
@@ -1037,8 +1078,10 @@ class Orchestrator:
         """Wait for all agents to cast their votes via MCP.
 
         No timeout - agents need time to review all implementations before voting.
+        Press 'w' to toggle the watch dashboard while waiting.
         """
         self.console.print("   🗳️  Waiting for agents to vote...")
+        self.console.print("   [dim]Press 'w' to open watch dashboard[/]")
 
         start_time = time.time()
         last_votes = set()
@@ -1063,6 +1106,11 @@ class Orchestrator:
                 elapsed = int(time.time() - start_time)
                 self.console.print(f"      All votes are in! (took {elapsed}s)")
                 return self.swarm_server.state.get_vote_results(task_id)
+
+            # Check for 'w' key to toggle watch dashboard
+            key = self._check_key_press()
+            if key == "w":
+                self._show_watch_dashboard()
 
             # Periodic heartbeat to show we're still waiting
             if time.time() - last_heartbeat > heartbeat_interval:

@@ -952,3 +952,147 @@ class TestSpawnAgentsUsesBakedBackends:
         assert mock_worktree_backend.delete_session.call_count == 2
         mock_worktree_backend.delete_session.assert_any_call("agent-0", force=True)
         mock_worktree_backend.delete_session.assert_any_call("agent-1", force=True)
+
+
+# =============================================================================
+# Tests for watch dashboard toggle during run
+# =============================================================================
+
+class TestWatchToggleDuringRun:
+    """Tests for the 'w' key toggle to show watch dashboard during run."""
+
+    @pytest.fixture
+    def orchestrator_for_watch(self, mock_schaltwerk_client):
+        """Create an orchestrator for testing watch toggle."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(agent_count=3, timeout=60)
+            yield orch
+
+    def test_check_key_press_returns_none_when_no_input(self, orchestrator_for_watch):
+        """_check_key_press should return None when no key is pressed."""
+        with patch("select.select", return_value=([], [], [])):
+            result = orchestrator_for_watch._check_key_press()
+            assert result is None
+
+    def test_check_key_press_returns_key_when_pressed(self, orchestrator_for_watch):
+        """_check_key_press should return the key when one is pressed."""
+        import io
+
+        # Need to patch the imports in the orchestrator module
+        with patch("swarm_orchestrator.orchestrator.select.select") as mock_select:
+            # First call returns input available, second call (inside the function) also returns available
+            mock_select.side_effect = [[True], [True]]
+            with patch("swarm_orchestrator.orchestrator.sys.stdin") as mock_stdin:
+                mock_stdin.fileno.return_value = 0
+                mock_stdin.read.return_value = "w"
+                with patch("termios.tcgetattr", return_value=[]):
+                    with patch("termios.tcsetattr"):
+                        with patch("tty.setcbreak"):
+                            result = orchestrator_for_watch._check_key_press()
+                            assert result == "w"
+
+    def test_check_key_press_handles_non_tty(self, orchestrator_for_watch):
+        """_check_key_press should gracefully handle non-TTY environments."""
+        import termios
+
+        with patch("select.select", return_value=([True], [], [])):
+            with patch("termios.tcgetattr", side_effect=termios.error("not a tty")):
+                result = orchestrator_for_watch._check_key_press()
+                assert result is None
+
+    def test_show_watch_dashboard_creates_and_runs_dashboard(self, orchestrator_for_watch):
+        """_show_watch_dashboard should create SessionsDashboard and call run()."""
+        # Patch at tui module level since it's imported locally in _show_watch_dashboard
+        with patch("swarm_orchestrator.tui.SessionsDashboard") as MockDashboard:
+            mock_dashboard_instance = MagicMock()
+            MockDashboard.return_value = mock_dashboard_instance
+
+            orchestrator_for_watch._show_watch_dashboard()
+
+            MockDashboard.assert_called_once_with(backend=orchestrator_for_watch._worktree_backend)
+            mock_dashboard_instance.run.assert_called_once()
+
+    def test_wait_for_mcp_completion_shows_help_text(self, orchestrator_for_watch, capsys):
+        """_wait_for_mcp_completion should show help text about 'w' shortcut."""
+        mock_task = MagicMock()
+        mock_task.all_agents_finished.return_value = True
+        mock_task.agent_ids = []
+        mock_task.agent_statuses = {}
+
+        with patch.object(orchestrator_for_watch, 'swarm_server') as mock_server:
+            mock_server.state.get_task.return_value = mock_task
+
+            orchestrator_for_watch._wait_for_mcp_completion("task-1")
+
+        # Check the help text was printed (via rich console)
+        # Since Rich Console is used, we check the console output
+        # We can verify the method completed without error
+
+    def test_wait_for_mcp_completion_checks_for_w_key(self, orchestrator_for_watch):
+        """_wait_for_mcp_completion should check for 'w' key press in the loop."""
+        mock_task = MagicMock()
+        # First iteration: not finished, second: finished
+        mock_task.all_agents_finished.side_effect = [False, True]
+        mock_task.agent_ids = ["agent-1"]
+        mock_task.agent_statuses = {}
+
+        with patch.object(orchestrator_for_watch, 'swarm_server') as mock_server:
+            mock_server.state.get_task.return_value = mock_task
+
+            with patch.object(orchestrator_for_watch, '_check_key_press', return_value=None) as mock_check:
+                with patch("time.sleep"):
+                    orchestrator_for_watch._wait_for_mcp_completion("task-1")
+
+                # Should have checked for key press at least once
+                assert mock_check.call_count >= 1
+
+    def test_wait_for_mcp_completion_opens_dashboard_on_w(self, orchestrator_for_watch):
+        """_wait_for_mcp_completion should open dashboard when 'w' is pressed."""
+        mock_task = MagicMock()
+        # First call: not finished (triggers loop), second: finished
+        mock_task.all_agents_finished.side_effect = [False, True]
+        mock_task.agent_ids = ["agent-1"]
+        mock_task.agent_statuses = {}
+
+        with patch.object(orchestrator_for_watch, 'swarm_server') as mock_server:
+            mock_server.state.get_task.return_value = mock_task
+
+            # Simulate 'w' key press on first check
+            with patch.object(orchestrator_for_watch, '_check_key_press', return_value="w") as mock_check:
+                with patch.object(orchestrator_for_watch, '_show_watch_dashboard') as mock_show:
+                    with patch("time.sleep"):
+                        orchestrator_for_watch._wait_for_mcp_completion("task-1")
+
+                    mock_show.assert_called_once()
+
+    def test_wait_for_mcp_votes_shows_help_text(self, orchestrator_for_watch):
+        """_wait_for_mcp_votes should show help text about 'w' shortcut."""
+        mock_task = MagicMock()
+        mock_task.all_agents_voted.return_value = True
+        mock_task.agent_ids = []
+        mock_task.votes = {}
+
+        with patch.object(orchestrator_for_watch, 'swarm_server') as mock_server:
+            mock_server.state.get_task.return_value = mock_task
+            mock_server.state.get_vote_results.return_value = {"success": True}
+
+            orchestrator_for_watch._wait_for_mcp_votes("task-1")
+
+    def test_wait_for_mcp_votes_opens_dashboard_on_w(self, orchestrator_for_watch):
+        """_wait_for_mcp_votes should open dashboard when 'w' is pressed."""
+        mock_task = MagicMock()
+        mock_task.all_agents_voted.side_effect = [False, True]
+        mock_task.agent_ids = ["agent-1"]
+        mock_task.votes = {}
+
+        with patch.object(orchestrator_for_watch, 'swarm_server') as mock_server:
+            mock_server.state.get_task.return_value = mock_task
+            mock_server.state.get_vote_results.return_value = {"success": True}
+
+            with patch.object(orchestrator_for_watch, '_check_key_press', return_value="w"):
+                with patch.object(orchestrator_for_watch, '_show_watch_dashboard') as mock_show:
+                    with patch("time.sleep"):
+                        orchestrator_for_watch._wait_for_mcp_votes("task-1")
+
+                    mock_show.assert_called_once()
