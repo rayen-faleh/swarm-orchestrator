@@ -21,6 +21,7 @@ from .backends import (
     AgentBackend,
     SchaltwerkWorktreeBackend,
     SchaltwerkAgentBackend,
+    GitNativeWorktreeBackend,
     CursorCLIAgentBackend,
 )
 
@@ -536,6 +537,8 @@ class Orchestrator:
         """Create worktree backend based on config."""
         if self.config.worktree_backend == "schaltwerk":
             return SchaltwerkWorktreeBackend(self.client)
+        if self.config.worktree_backend == "git-native":
+            return GitNativeWorktreeBackend()
         raise ValueError(f"Unknown worktree backend: {self.config.worktree_backend}")
 
     def _create_agent_backend(self) -> AgentBackend:
