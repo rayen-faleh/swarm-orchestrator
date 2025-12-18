@@ -24,12 +24,23 @@ class TestSessionRecord:
             worktree_path="/path/to/worktree",
             created_at="2024-01-01T00:00:00Z",
             spec_content="Task content here",
+            pid=12345,
         )
         assert record.name == "test-session"
         assert record.status == "running"
         assert record.branch == "git-native/test-session"
         assert record.worktree_path == "/path/to/worktree"
         assert record.spec_content == "Task content here"
+        assert record.pid == 12345
+
+    def test_session_record_pid_defaults_to_none(self):
+        """SessionRecord pid defaults to None."""
+        record = SessionRecord(
+            name="test",
+            status="running",
+            branch="git-native/test",
+        )
+        assert record.pid is None
 
     def test_session_record_to_dict(self):
         """SessionRecord can be serialized to dict."""
@@ -37,12 +48,14 @@ class TestSessionRecord:
             name="test",
             status="spec",
             branch="git-native/test",
+            pid=5678,
         )
         d = record.to_dict()
         assert d["name"] == "test"
         assert d["status"] == "spec"
         assert d["branch"] == "git-native/test"
         assert d["worktree_path"] is None
+        assert d["pid"] == 5678
 
     def test_session_record_from_dict(self):
         """SessionRecord can be deserialized from dict."""
@@ -53,11 +66,23 @@ class TestSessionRecord:
             "worktree_path": "/path",
             "created_at": "2024-01-01T00:00:00Z",
             "spec_content": "content",
+            "pid": 9999,
         }
         record = SessionRecord.from_dict(d)
         assert record.name == "test"
         assert record.status == "running"
         assert record.worktree_path == "/path"
+        assert record.pid == 9999
+
+    def test_session_record_from_dict_without_pid(self):
+        """SessionRecord from_dict handles missing pid field."""
+        d = {
+            "name": "test",
+            "status": "running",
+            "branch": "git-native/test",
+        }
+        record = SessionRecord.from_dict(d)
+        assert record.pid is None
 
 
 class TestSessionStore:

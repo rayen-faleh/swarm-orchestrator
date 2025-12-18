@@ -5,6 +5,8 @@ Provides WorktreeBackend using native git worktree commands instead of Schaltwer
 Also provides GitNativeAgentBackend for spawning Claude CLI agents directly.
 """
 
+import os
+import signal
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -218,14 +220,20 @@ class GitNativeAgentBackend(AgentBackend):
     Spawns Claude Code CLI agents directly in git worktree directories.
     """
 
-    def __init__(self, worktree_base: Path | str | None = None):
+    def __init__(
+        self,
+        worktree_base: Path | str | None = None,
+        store: SessionStore | None = None,
+    ):
         """
         Initialize the git-native agent backend.
 
         Args:
             worktree_base: Base directory for worktrees. Defaults to .swarm/worktrees.
+            store: SessionStore for PID persistence. Creates one if not provided.
         """
         self._worktree_base = Path(worktree_base) if worktree_base else Path.cwd() / ".swarm" / "worktrees"
+        self._store = store if store else SessionStore()
         self._processes: dict[str, subprocess.Popen] = {}
 
     def spawn_agent(self, session_name: str, prompt: str) -> str:
@@ -268,6 +276,13 @@ class GitNativeAgentBackend(AgentBackend):
         )
 
         self._processes[session_name] = process
+
+        # Persist PID for process management across restarts
+        record = self._store.get(session_name)
+        if record:
+            record.pid = process.pid
+            self._store.save(record)
+
         return session_name
 
     def wait_for_completion(
@@ -348,3 +363,51 @@ class GitNativeAgentBackend(AgentBackend):
 
         return_code = process.poll()
         return AgentStatus(agent_id=agent_id, is_finished=return_code is not None)
+
+    def stop_agent(self, session_name: str) -> bool:
+        """
+        Stop a running agent by terminating its process.
+
+        Attempts graceful SIGTERM first, falls back to SIGKILL if needed.
+        Uses in-memory process handle if available, otherwise uses stored PID.
+
+        Args:
+            session_name: Session/agent identifier to stop
+
+        Returns:
+            True if agent was stopped, False if not found or already stopped
+        """
+        # Try in-memory process first
+        process = self._processes.get(session_name)
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            del self._processes[session_name]
+            # Clear PID from store
+            record = self._store.get(session_name)
+            if record:
+                record.pid = None
+                self._store.save(record)
+            return True
+
+        # Fall back to stored PID for processes started in previous runs
+        record = self._store.get(session_name)
+        if record and record.pid:
+            try:
+                os.kill(record.pid, signal.SIGTERM)
+                # Clear PID from store
+                record.pid = None
+                self._store.save(record)
+                return True
+            except ProcessLookupError:
+                # Process already dead, clear stale PID
+                record.pid = None
+                self._store.save(record)
+                return False
+            except PermissionError:
+                return False
+
+        return False

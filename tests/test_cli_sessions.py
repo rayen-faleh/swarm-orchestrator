@@ -200,3 +200,109 @@ class TestMergeCommand:
 
         assert result.exit_code != 0
         assert "error" in result.output.lower()
+
+
+class TestStopCommand:
+    """Tests for the 'swarm stop <session>' command."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_stop_stops_running_session(self, runner):
+        """Should stop a running session."""
+        mock_agent_backend = MagicMock()
+        mock_agent_backend.stop_agent.return_value = True
+
+        with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+            result = runner.invoke(main, ["stop", "task-agent-0"])
+
+        assert result.exit_code == 0
+        mock_agent_backend.stop_agent.assert_called_once_with("task-agent-0")
+        assert "stopped" in result.output.lower()
+
+    def test_stop_shows_message_for_not_running(self, runner):
+        """Should show message when session not running."""
+        mock_agent_backend = MagicMock()
+        mock_agent_backend.stop_agent.return_value = False
+
+        with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+            result = runner.invoke(main, ["stop", "task-agent-0"])
+
+        assert result.exit_code == 0
+        assert "not running" in result.output.lower() or "not found" in result.output.lower()
+
+    def test_stop_errors_when_no_agent_backend(self, runner):
+        """Should error when agent backend doesn't support stop."""
+        with patch("swarm_orchestrator.cli._get_agent_backend", return_value=None):
+            result = runner.invoke(main, ["stop", "task-agent-0"])
+
+        assert result.exit_code != 0
+        assert "error" in result.output.lower()
+
+
+class TestDeleteCommand:
+    """Tests for the 'swarm delete <session>' command."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_delete_deletes_session(self, runner):
+        """Should delete a session."""
+        mock_worktree_backend = MagicMock()
+        mock_worktree_backend.get_session.return_value = SessionInfo(
+            name="task-agent-0", status="running", branch="branch"
+        )
+        mock_agent_backend = MagicMock()
+
+        with patch("swarm_orchestrator.cli._get_worktree_backend", return_value=mock_worktree_backend):
+            with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+                result = runner.invoke(main, ["delete", "task-agent-0"])
+
+        assert result.exit_code == 0
+        mock_worktree_backend.delete_session.assert_called_once_with("task-agent-0", force=False)
+        assert "deleted" in result.output.lower()
+
+    def test_delete_stops_agent_first(self, runner):
+        """Should stop agent before deleting session."""
+        mock_worktree_backend = MagicMock()
+        mock_worktree_backend.get_session.return_value = SessionInfo(
+            name="task-agent-0", status="running", branch="branch"
+        )
+        mock_agent_backend = MagicMock()
+
+        with patch("swarm_orchestrator.cli._get_worktree_backend", return_value=mock_worktree_backend):
+            with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+                result = runner.invoke(main, ["delete", "task-agent-0"])
+
+        assert result.exit_code == 0
+        mock_agent_backend.stop_agent.assert_called_once_with("task-agent-0")
+
+    def test_delete_invalid_session(self, runner):
+        """Should error for invalid session name."""
+        mock_worktree_backend = MagicMock()
+        mock_worktree_backend.get_session.return_value = None
+        mock_agent_backend = MagicMock()
+
+        with patch("swarm_orchestrator.cli._get_worktree_backend", return_value=mock_worktree_backend):
+            with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+                result = runner.invoke(main, ["delete", "nonexistent"])
+
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower() or "error" in result.output.lower()
+
+    def test_delete_with_force_flag(self, runner):
+        """Should pass force flag to backend."""
+        mock_worktree_backend = MagicMock()
+        mock_worktree_backend.get_session.return_value = SessionInfo(
+            name="task-agent-0", status="running", branch="branch"
+        )
+        mock_agent_backend = MagicMock()
+
+        with patch("swarm_orchestrator.cli._get_worktree_backend", return_value=mock_worktree_backend):
+            with patch("swarm_orchestrator.cli._get_agent_backend", return_value=mock_agent_backend):
+                result = runner.invoke(main, ["delete", "--force", "task-agent-0"])
+
+        assert result.exit_code == 0
+        mock_worktree_backend.delete_session.assert_called_once_with("task-agent-0", force=True)

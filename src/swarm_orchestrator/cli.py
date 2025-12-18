@@ -37,6 +37,18 @@ def _get_worktree_backend(config: SwarmConfig | None = None) -> WorktreeBackend:
         raise ValueError(f"Unknown worktree backend: {config.worktree_backend}")
 
 
+def _get_agent_backend(config: SwarmConfig | None = None):
+    """Create and return the appropriate agent backend based on config."""
+    if config is None:
+        config = load_config()
+
+    if config.agent_backend == "git-native":
+        from .backends.git_native import GitNativeAgentBackend
+        return GitNativeAgentBackend()
+    else:
+        return None
+
+
 def _get_git_root() -> Path:
     """Get the root directory of the git repository."""
     try:
@@ -793,6 +805,81 @@ def merge(session_name: str, message: str | None):
         backend.merge_session(session_name, commit_msg)
 
         console.print(f"[bold green]✅ Session '{session_name}' merged successfully![/]")
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("session_name")
+def stop(session_name: str):
+    """Stop a running agent session.
+
+    \b
+    Terminates the agent process for the specified session.
+    The session worktree and metadata are preserved.
+    """
+    console.print(f"\n[bold]🛑 Stopping session:[/] {session_name}\n")
+
+    try:
+        agent_backend = _get_agent_backend()
+        if agent_backend is None:
+            console.print("[bold red]Error:[/] Agent backend does not support stopping")
+            raise SystemExit(1)
+
+        if not hasattr(agent_backend, "stop_agent"):
+            console.print("[bold red]Error:[/] Agent backend does not support stopping")
+            raise SystemExit(1)
+
+        stopped = agent_backend.stop_agent(session_name)
+
+        if stopped:
+            console.print(f"[bold green]✅ Session '{session_name}' stopped![/]")
+        else:
+            console.print(f"[yellow]Session '{session_name}' was not running or not found[/]")
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("session_name")
+@click.option(
+    "--force", "-f",
+    is_flag=True,
+    help="Force deletion even if uncommitted changes exist",
+)
+def delete(session_name: str, force: bool):
+    """Delete a session and clean up resources.
+
+    \b
+    Removes the session's worktree, branch, and metadata.
+    If an agent is running, it will be stopped first.
+    """
+    console.print(f"\n[bold]🗑️  Deleting session:[/] {session_name}\n")
+
+    try:
+        # Stop any running agent first
+        agent_backend = _get_agent_backend()
+        if agent_backend and hasattr(agent_backend, "stop_agent"):
+            agent_backend.stop_agent(session_name)
+
+        backend = _get_worktree_backend()
+
+        session = backend.get_session(session_name)
+        if session is None:
+            console.print(f"[bold red]Error:[/] Session '{session_name}' not found")
+            raise SystemExit(1)
+
+        backend.delete_session(session_name, force=force)
+
+        console.print(f"[bold green]✅ Session '{session_name}' deleted![/]")
 
     except SystemExit:
         raise

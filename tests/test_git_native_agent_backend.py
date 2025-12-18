@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from swarm_orchestrator.backends.base import AgentBackend, AgentStatus
 from swarm_orchestrator.backends.git_native import GitNativeAgentBackend
+from swarm_orchestrator.backends.git_native_store import SessionStore, SessionRecord
 
 
 class TestGitNativeAgentBackend:
@@ -242,3 +243,132 @@ class TestGitNativeAgentBackendWorktreePath:
 
             call_args = mock_popen.call_args
             assert call_args[1]["cwd"] == session_dir
+
+
+class TestGitNativeAgentBackendStopAgent:
+    """Tests for stop_agent method."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        """Create a session store with temp path."""
+        return SessionStore(store_path=tmp_path / ".swarm" / "sessions.json")
+
+    @pytest.fixture
+    def backend(self, tmp_path, store):
+        """Create a backend with temp worktree base and store."""
+        return GitNativeAgentBackend(worktree_base=tmp_path, store=store)
+
+    def test_stop_agent_terminates_running_process(self, backend):
+        """stop_agent terminates a running process."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None  # Running
+        mock_process.wait.return_value = None
+        backend._processes["test-session"] = mock_process
+
+        result = backend.stop_agent("test-session")
+
+        assert result is True
+        mock_process.terminate.assert_called_once()
+        assert "test-session" not in backend._processes
+
+    def test_stop_agent_kills_on_timeout(self, backend):
+        """stop_agent uses kill() if terminate() times out."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.wait.side_effect = subprocess.TimeoutExpired("cmd", 5)
+        backend._processes["test-session"] = mock_process
+
+        result = backend.stop_agent("test-session")
+
+        assert result is True
+        mock_process.terminate.assert_called_once()
+        mock_process.kill.assert_called_once()
+
+    def test_stop_agent_returns_false_for_unknown(self, backend):
+        """stop_agent returns False for unknown session."""
+        result = backend.stop_agent("unknown-session")
+        assert result is False
+
+    def test_stop_agent_clears_pid_from_store(self, backend, store):
+        """stop_agent clears PID from session store."""
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            pid=12345,
+        ))
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        backend._processes["test-session"] = mock_process
+
+        backend.stop_agent("test-session")
+
+        record = store.get("test-session")
+        assert record.pid is None
+
+    def test_stop_agent_uses_stored_pid_when_no_process(self, backend, store):
+        """stop_agent uses stored PID when process not in memory."""
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            pid=99999,  # Non-existent PID
+        ))
+
+        with patch("os.kill") as mock_kill:
+            mock_kill.side_effect = ProcessLookupError()
+            result = backend.stop_agent("test-session")
+
+        # Returns False because process doesn't exist
+        assert result is False
+        # But PID should be cleared
+        record = store.get("test-session")
+        assert record.pid is None
+
+    def test_stop_agent_returns_true_on_successful_kill(self, backend, store):
+        """stop_agent returns True when os.kill succeeds."""
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            pid=12345,
+        ))
+
+        with patch("os.kill") as mock_kill:
+            result = backend.stop_agent("test-session")
+
+        assert result is True
+        mock_kill.assert_called_once()
+
+
+class TestGitNativeAgentBackendPIDTracking:
+    """Tests for PID tracking in spawn_agent."""
+
+    @pytest.fixture
+    def store(self, tmp_path):
+        """Create a session store with temp path."""
+        return SessionStore(store_path=tmp_path / ".swarm" / "sessions.json")
+
+    def test_spawn_agent_saves_pid_to_store(self, tmp_path, store):
+        """spawn_agent saves process PID to session store."""
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+
+        # Pre-create session record (normally done by worktree backend)
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+        ))
+
+        backend = GitNativeAgentBackend(worktree_base=tmp_path, store=store)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_process = MagicMock()
+            mock_process.pid = 54321
+            mock_popen.return_value = mock_process
+
+            backend.spawn_agent("test-session", "prompt")
+
+        record = store.get("test-session")
+        assert record.pid == 54321

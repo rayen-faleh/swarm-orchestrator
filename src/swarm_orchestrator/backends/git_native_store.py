@@ -22,6 +22,7 @@ class SessionRecord:
     worktree_path: str | None = None
     created_at: str | None = None
     spec_content: str | None = None
+    pid: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -37,6 +38,7 @@ class SessionRecord:
             worktree_path=data.get("worktree_path"),
             created_at=data.get("created_at"),
             spec_content=data.get("spec_content"),
+            pid=data.get("pid"),
         )
 
 
