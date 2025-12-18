@@ -249,18 +249,20 @@ class GitNativeAgentBackend(AgentBackend):
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
 
-        # Build command
+        # Build command with headless output format for proper non-TTY execution
         cmd = [
             "claude",
             "-p", str(prompt_file),
             "--dangerously-skip-permissions",
+            "--output-format", "stream-json",
         ]
 
-        # Start process
+        # Start process - capture stdout for status monitoring
+        # stdin is not needed in headless mode, stderr captured for errors
         process = subprocess.Popen(
             cmd,
             cwd=worktree_path,
-            stdin=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -304,7 +306,10 @@ class GitNativeAgentBackend(AgentBackend):
 
     def send_message(self, agent_id: str, message: str) -> None:
         """
-        Send a message to a running agent via stdin.
+        Send a message to a running agent.
+
+        Note: In headless mode with stream-json output, stdin messaging is not supported.
+        This method raises NotImplementedError for headless agents.
 
         Args:
             agent_id: Agent to send message to
@@ -312,6 +317,7 @@ class GitNativeAgentBackend(AgentBackend):
 
         Raises:
             ValueError: If agent not found or not running
+            NotImplementedError: When agent runs in headless mode (stdin disabled)
         """
         process = self._processes.get(agent_id)
         if not process:
@@ -320,9 +326,11 @@ class GitNativeAgentBackend(AgentBackend):
         if process.poll() is not None:
             raise ValueError(f"Agent not running: {agent_id}")
 
-        if process.stdin:
-            process.stdin.write(f"{message}\n".encode())
-            process.stdin.flush()
+        # Headless agents use DEVNULL for stdin - messaging not supported
+        raise NotImplementedError(
+            "send_message is not supported in headless mode. "
+            "Agents spawned with --output-format stream-json do not accept stdin messages."
+        )
 
     def get_status(self, agent_id: str) -> AgentStatus:
         """

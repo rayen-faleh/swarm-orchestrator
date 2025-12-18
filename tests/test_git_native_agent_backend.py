@@ -61,6 +61,30 @@ class TestGitNativeAgentBackend:
         assert "-p" in cmd
         assert "--dangerously-skip-permissions" in cmd
 
+    def test_spawn_agent_uses_headless_output_format(self, backend, mock_popen, tmp_path):
+        """spawn_agent uses --output-format stream-json for headless execution."""
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+
+        backend.spawn_agent("test-session", "prompt")
+
+        call_args = mock_popen.call_args
+        cmd = call_args[0][0]
+
+        assert "--output-format" in cmd
+        output_format_idx = cmd.index("--output-format")
+        assert cmd[output_format_idx + 1] == "stream-json"
+
+    def test_spawn_agent_captures_stdout_for_status_monitoring(self, backend, mock_popen, tmp_path):
+        """spawn_agent captures stdout to enable status monitoring."""
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+
+        backend.spawn_agent("test-session", "prompt")
+
+        call_args = mock_popen.call_args
+        assert call_args[1].get("stdout") == subprocess.PIPE
+
     def test_spawn_agent_runs_in_worktree_directory(self, backend, mock_popen, tmp_path):
         """spawn_agent sets cwd to worktree path."""
         worktree_path = tmp_path / "test-session"
@@ -161,17 +185,14 @@ class TestGitNativeAgentBackend:
         assert result["agent-1"].is_finished is True
         assert result["agent-2"].is_finished is True
 
-    def test_send_message_writes_to_stdin(self, backend):
-        """send_message writes to process stdin."""
+    def test_send_message_raises_not_implemented_in_headless_mode(self, backend):
+        """send_message raises NotImplementedError in headless mode."""
         mock_process = MagicMock()
-        mock_process.stdin = MagicMock()
         mock_process.poll.return_value = None  # Still running
         backend._processes["test-session"] = mock_process
 
-        backend.send_message("test-session", "test message")
-
-        mock_process.stdin.write.assert_called()
-        mock_process.stdin.flush.assert_called()
+        with pytest.raises(NotImplementedError, match="headless mode"):
+            backend.send_message("test-session", "test message")
 
     def test_send_message_raises_for_unknown_agent(self, backend):
         """send_message raises ValueError for unknown agent."""
