@@ -47,8 +47,8 @@ class TestGitNativeAgentBackend:
         assert prompt_file.exists()
         assert prompt_file.read_text() == prompt
 
-    def test_spawn_agent_uses_osascript(self, backend, mock_popen, tmp_path):
-        """spawn_agent uses osascript to open Terminal.app."""
+    def test_spawn_agent_uses_open_command(self, backend, mock_popen, tmp_path):
+        """spawn_agent uses 'open -a Terminal' to launch .command file."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
@@ -58,37 +58,37 @@ class TestGitNativeAgentBackend:
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
 
-        assert cmd[0] == "osascript"
-        assert "-e" in cmd
+        assert cmd[0] == "open"
+        assert "-a" in cmd
+        assert "Terminal" in cmd
 
-    def test_spawn_agent_applescript_contains_claude_command(self, backend, mock_popen, tmp_path):
-        """spawn_agent AppleScript contains claude CLI command."""
+    def test_spawn_agent_creates_command_file(self, backend, mock_popen, tmp_path):
+        """spawn_agent creates a .command file with claude CLI command."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
         backend.spawn_agent("test-session", "prompt")
 
-        call_args = mock_popen.call_args
-        cmd = call_args[0][0]
-        applescript = cmd[2]  # -e argument
+        command_file = worktree_path / ".swarm-agent.command"
+        assert command_file.exists()
 
-        assert "claude" in applescript
-        assert "-p" in applescript
-        assert "--dangerously-skip-permissions" in applescript
-        assert "Terminal" in applescript
+        content = command_file.read_text()
+        assert "claude" in content
+        # Should NOT use 'claude -p' (headless mode) - need interactive mode for MCP
+        assert "claude -p" not in content
+        assert "--dangerously-skip-permissions" in content
 
-    def test_spawn_agent_applescript_includes_worktree_cd(self, backend, mock_popen, tmp_path):
-        """spawn_agent AppleScript changes to worktree directory."""
+    def test_spawn_agent_command_file_includes_worktree_cd(self, backend, mock_popen, tmp_path):
+        """spawn_agent .command file changes to worktree directory."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
         backend.spawn_agent("test-session", "prompt")
 
-        call_args = mock_popen.call_args
-        cmd = call_args[0][0]
-        applescript = cmd[2]
+        command_file = worktree_path / ".swarm-agent.command"
+        content = command_file.read_text()
 
-        assert f"cd '{worktree_path}'" in applescript
+        assert f"cd '{worktree_path}'" in content
 
     def test_spawn_agent_returns_agent_id(self, backend, mock_popen, tmp_path):
         """spawn_agent returns the session name as agent_id."""
@@ -241,11 +241,11 @@ class TestGitNativeAgentBackendWorktreePath:
             mock_popen.return_value = MagicMock(pid=123)
             backend.spawn_agent("my-session", "prompt")
 
-            # AppleScript embeds the cd command, so verify worktree path is in the script
-            call_args = mock_popen.call_args
-            cmd = call_args[0][0]
-            applescript = cmd[2]
-            assert f"cd '{session_dir}'" in applescript
+            # .command file embeds the cd command, verify worktree path is in the script
+            command_file = session_dir / ".swarm-agent.command"
+            assert command_file.exists()
+            content = command_file.read_text()
+            assert f"cd '{session_dir}'" in content
 
 
 class TestGitNativeAgentBackendStopAgent:

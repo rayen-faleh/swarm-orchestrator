@@ -253,33 +253,40 @@ class GitNativeAgentBackend(AgentBackend):
         """
         worktree_path = self._worktree_base / session_name
 
-        # Write prompt to file for reference/debugging
+        # Write prompt to file - claude will read from this
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
 
-        # Write a temporary shell script to avoid Terminal's 1024 char command limit
-        # The script reads the prompt from file and self-deletes after execution
-        script_file = worktree_path / ".swarm-run.sh"
+        # Create a .command file - macOS native way to launch scripts in Terminal
+        # The .command extension makes it double-clickable and launchable via `open`
+        command_file = worktree_path / ".swarm-agent.command"
         script_content = f'''#!/bin/bash
+# Swarm agent launcher - self-cleaning
+SCRIPT_PATH="$0"
 cd '{worktree_path}'
-PROMPT=$(cat '{prompt_file}')
-claude -p "$PROMPT" --dangerously-skip-permissions
-rm -f '{script_file}'
+
+# Read prompt from file to avoid command line length limits
+PROMPT_FILE='{prompt_file}'
+if [ -f "$PROMPT_FILE" ]; then
+    # IMPORTANT: Use interactive mode (no -p flag) to enable MCP server access
+    # The prompt is passed as a positional argument to pre-seed the session
+    # --dangerously-skip-permissions bypasses permission prompts for automation
+    claude "$(cat "$PROMPT_FILE")" --dangerously-skip-permissions
+else
+    echo "Error: Prompt file not found: $PROMPT_FILE"
+    exit 1
+fi
+
+# Clean up the launcher script
+rm -f "$SCRIPT_PATH"
 '''
-        script_file.write_text(script_content)
-        script_file.chmod(0o755)
+        command_file.write_text(script_content)
+        command_file.chmod(0o755)
 
-        # AppleScript to open a new Terminal window and run the script
-        applescript = f'''
-        tell application "Terminal"
-            activate
-            do script "{script_file}"
-        end tell
-        '''
-
-        # Run osascript to open Terminal and execute the script
+        # Use `open` command to launch .command file in Terminal.app
+        # This is the native macOS way to open scripts in Terminal
         process = subprocess.Popen(
-            ["osascript", "-e", applescript],
+            ["open", "-a", "Terminal", str(command_file)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
