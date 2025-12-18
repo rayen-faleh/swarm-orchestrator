@@ -4,10 +4,13 @@ Main orchestrator that coordinates decomposition, agent spawning, and voting.
 
 import select
 import sys
+import termios
 import time
+import tty
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Generator, Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -996,26 +999,43 @@ class Orchestrator:
 
         return sessions
 
-    def _check_key_press(self) -> str | None:
-        """Non-blocking check for keyboard input. Returns key if pressed, None otherwise."""
+    @contextmanager
+    def _raw_mode(self) -> Generator[bool, None, None]:
+        """Context manager to set terminal to cbreak mode for the duration.
+
+        Yields True if raw mode was enabled, False otherwise (non-TTY).
+        Terminal is restored on exit.
+        """
+        import io
+
+        old_settings = None
+        fd = None
         try:
-            import termios
-            import tty
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+            yield True
+        except (termios.error, OSError, io.UnsupportedOperation):
+            # Not a TTY, pseudofile, or terminal functions unavailable
+            yield False
+        finally:
+            if old_settings is not None and fd is not None:
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                except (termios.error, OSError, io.UnsupportedOperation):
+                    pass
 
-            # Check if stdin has data available
-            if not select.select([sys.stdin], [], [], 0)[0]:
-                return None
+    def _check_key_press(self) -> str | None:
+        """Non-blocking check for keyboard input. Returns key if pressed, None otherwise.
 
-            # Save terminal settings
-            old_settings = termios.tcgetattr(sys.stdin)
-            try:
-                tty.setcbreak(sys.stdin.fileno())
-                if select.select([sys.stdin], [], [], 0)[0]:
-                    return sys.stdin.read(1)
-            finally:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-        except (ImportError, termios.error, OSError):
-            # Not a TTY or terminal functions unavailable
+        Note: Terminal must already be in cbreak/raw mode for this to detect
+        single keypresses. Use within _raw_mode() context.
+        """
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
+                return sys.stdin.read(1)
+        except (OSError, ValueError):
+            # stdin not readable or file descriptor issues
             pass
         return None
 
@@ -1042,37 +1062,38 @@ class Orchestrator:
         last_heartbeat = time.time()
         heartbeat_interval = 60  # Show status every 60 seconds
 
-        while True:
-            task = self.swarm_server.state.get_task(task_id)
-            if not task:
-                raise ValueError(f"Task {task_id} not found")
+        with self._raw_mode():
+            while True:
+                task = self.swarm_server.state.get_task(task_id)
+                if not task:
+                    raise ValueError(f"Task {task_id} not found")
 
-            # Report progress when agents finish
-            for agent_id in task.agent_ids:
-                status = task.agent_statuses.get(agent_id)
-                if status and agent_id not in last_status:
-                    self.console.print(f"      ✓ {agent_id} finished")
-                    last_status[agent_id] = status
+                # Report progress when agents finish
+                for agent_id in task.agent_ids:
+                    status = task.agent_statuses.get(agent_id)
+                    if status and agent_id not in last_status:
+                        self.console.print(f"      ✓ {agent_id} finished")
+                        last_status[agent_id] = status
 
-            if task.all_agents_finished():
-                elapsed = int(time.time() - start_time)
-                self.console.print(f"      All agents finished! (took {elapsed}s)")
-                return
+                if task.all_agents_finished():
+                    elapsed = int(time.time() - start_time)
+                    self.console.print(f"      All agents finished! (took {elapsed}s)")
+                    return
 
-            # Check for 'w' key to toggle watch dashboard
-            key = self._check_key_press()
-            if key == "w":
-                self._show_watch_dashboard()
+                # Check for 'w' key to toggle watch dashboard
+                key = self._check_key_press()
+                if key == "w":
+                    self._show_watch_dashboard()
 
-            # Periodic heartbeat to show we're still waiting
-            if time.time() - last_heartbeat > heartbeat_interval:
-                elapsed = int(time.time() - start_time)
-                finished = len(last_status)
-                total = len(task.agent_ids)
-                self.console.print(f"      [dim]... still waiting ({finished}/{total} done, {elapsed}s elapsed)[/]")
-                last_heartbeat = time.time()
+                # Periodic heartbeat to show we're still waiting
+                if time.time() - last_heartbeat > heartbeat_interval:
+                    elapsed = int(time.time() - start_time)
+                    finished = len(last_status)
+                    total = len(task.agent_ids)
+                    self.console.print(f"      [dim]... still waiting ({finished}/{total} done, {elapsed}s elapsed)[/]")
+                    last_heartbeat = time.time()
 
-            time.sleep(self._poll_interval)
+                time.sleep(self._poll_interval)
 
     def _wait_for_mcp_votes(self, task_id: str) -> dict:
         """Wait for all agents to cast their votes via MCP.
@@ -1088,39 +1109,40 @@ class Orchestrator:
         last_heartbeat = time.time()
         heartbeat_interval = 60  # Show status every 60 seconds
 
-        while True:
-            task = self.swarm_server.state.get_task(task_id)
-            if not task:
-                raise ValueError(f"Task {task_id} not found")
+        with self._raw_mode():
+            while True:
+                task = self.swarm_server.state.get_task(task_id)
+                if not task:
+                    raise ValueError(f"Task {task_id} not found")
 
-            # Report progress
-            for voter_id in task.votes:
-                if voter_id not in last_votes:
-                    vote = task.votes[voter_id]
-                    self.console.print(
-                        f"      ✓ {voter_id} voted for {vote.voted_for}"
-                    )
-                    last_votes.add(voter_id)
+                # Report progress
+                for voter_id in task.votes:
+                    if voter_id not in last_votes:
+                        vote = task.votes[voter_id]
+                        self.console.print(
+                            f"      ✓ {voter_id} voted for {vote.voted_for}"
+                        )
+                        last_votes.add(voter_id)
 
-            if task.all_agents_voted():
-                elapsed = int(time.time() - start_time)
-                self.console.print(f"      All votes are in! (took {elapsed}s)")
-                return self.swarm_server.state.get_vote_results(task_id)
+                if task.all_agents_voted():
+                    elapsed = int(time.time() - start_time)
+                    self.console.print(f"      All votes are in! (took {elapsed}s)")
+                    return self.swarm_server.state.get_vote_results(task_id)
 
-            # Check for 'w' key to toggle watch dashboard
-            key = self._check_key_press()
-            if key == "w":
-                self._show_watch_dashboard()
+                # Check for 'w' key to toggle watch dashboard
+                key = self._check_key_press()
+                if key == "w":
+                    self._show_watch_dashboard()
 
-            # Periodic heartbeat to show we're still waiting
-            if time.time() - last_heartbeat > heartbeat_interval:
-                elapsed = int(time.time() - start_time)
-                voted = len(last_votes)
-                total = len(task.agent_ids)
-                self.console.print(f"      [dim]... still waiting for votes ({voted}/{total} voted, {elapsed}s elapsed)[/]")
-                last_heartbeat = time.time()
+                # Periodic heartbeat to show we're still waiting
+                if time.time() - last_heartbeat > heartbeat_interval:
+                    elapsed = int(time.time() - start_time)
+                    voted = len(last_votes)
+                    total = len(task.agent_ids)
+                    self.console.print(f"      [dim]... still waiting for votes ({voted}/{total} voted, {elapsed}s elapsed)[/]")
+                    last_heartbeat = time.time()
 
-            time.sleep(self._poll_interval)
+                time.sleep(self._poll_interval)
 
     def _get_winner_session(self, task_id: str, winner_agent_id: str) -> str:
         """Get the actual session name for the winning agent."""
