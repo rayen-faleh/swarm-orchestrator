@@ -263,11 +263,14 @@ class GitNativeAgentBackend(AgentBackend):
         # Build the claude command to run in terminal
         claude_cmd = f"cd '{worktree_path}' && claude -p '{escaped_prompt}' --dangerously-skip-permissions"
 
+        # Escape double quotes for AppleScript
+        escaped_cmd = claude_cmd.replace('"', '\\"')
+
         # AppleScript to open a new Terminal window and run the command
         applescript = f'''
         tell application "Terminal"
             activate
-            set newTab to do script "{claude_cmd.replace('"', '\\"')}"
+            set newTab to do script "{escaped_cmd}"
             return id of window 1
         end tell
         '''
