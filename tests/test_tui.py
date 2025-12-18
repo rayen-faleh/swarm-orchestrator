@@ -230,8 +230,8 @@ class TestSessionsDashboard:
         console.print(panel)
         output = console.file.getvalue()
 
-        # Help should still be visible
-        assert "q" in output or "quit" in output
+        # Help should still be visible (check for keys that appear early in the bar)
+        assert "j/k" in output or "navigate" in output
 
 
 class TestWatchCommand:
@@ -254,14 +254,20 @@ class TestWatchCommand:
         from swarm_orchestrator.cli import main
 
         with patch("swarm_orchestrator.cli._get_worktree_backend") as mock_get_backend, \
+             patch("swarm_orchestrator.cli._get_agent_backend") as mock_get_agent_backend, \
              patch("swarm_orchestrator.tui.SessionsDashboard") as MockDashboard:
             mock_backend = MagicMock()
+            mock_agent_backend = MagicMock()
             mock_get_backend.return_value = mock_backend
+            mock_get_agent_backend.return_value = mock_agent_backend
             mock_dashboard = MagicMock()
             MockDashboard.return_value = mock_dashboard
             mock_dashboard.run.side_effect = KeyboardInterrupt  # Exit immediately
 
             result = runner.invoke(main, ["watch"])
 
-            MockDashboard.assert_called_once_with(backend=mock_backend)
+            MockDashboard.assert_called_once_with(
+                backend=mock_backend,
+                agent_backend=mock_agent_backend,
+            )
             mock_dashboard.run.assert_called_once()

@@ -241,8 +241,9 @@ class GitNativeAgentBackend(AgentBackend):
         Spawn a Claude CLI agent in the session's worktree directory.
 
         Writes prompt to .swarm-prompt.md and runs claude CLI with:
-        - -p flag for prompt file
-        - --dangerously-skip-permissions to run non-interactively
+        - -p flag for non-interactive/print mode with prompt as argument
+        - --dangerously-skip-permissions to bypass permission prompts
+        - --output-format stream-json for structured output
 
         Args:
             session_name: Session/worktree name
@@ -253,26 +254,35 @@ class GitNativeAgentBackend(AgentBackend):
         """
         worktree_path = self._worktree_base / session_name
 
-        # Write prompt to file
+        # Write prompt to file for reference/debugging
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
 
-        # Build command with headless output format for proper non-TTY execution
+        # Build command for headless execution
+        # -p (--print) expects the prompt as a string argument, not a file path
+        # --dangerously-skip-permissions bypasses interactive permission prompts
+        # --output-format stream-json provides structured output for monitoring
         cmd = [
             "claude",
-            "-p", str(prompt_file),
+            "-p", prompt,  # Pass prompt string directly, not file path
             "--dangerously-skip-permissions",
             "--output-format", "stream-json",
         ]
 
-        # Start process - capture stdout for status monitoring
-        # stdin is not needed in headless mode, stderr captured for errors
+        # Start process with proper background execution settings:
+        # - start_new_session=True: Detaches from parent terminal, prevents SIGHUP
+        # - stdin=DEVNULL: Prevents blocking on terminal input
+        # - stdout/stderr to files: Allows monitoring without blocking
+        log_file = worktree_path / ".claude-output.log"
+        err_file = worktree_path / ".claude-error.log"
+
         process = subprocess.Popen(
             cmd,
             cwd=worktree_path,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=open(log_file, "w"),
+            stderr=open(err_file, "w"),
+            start_new_session=True,  # Detach from parent terminal
         )
 
         self._processes[session_name] = process
@@ -289,7 +299,7 @@ class GitNativeAgentBackend(AgentBackend):
         self, agent_ids: list[str], timeout: int | None = None
     ) -> dict[str, AgentStatus]:
         """
-        Wait for agents to complete using communicate() with timeout.
+        Wait for agents to complete by polling process status.
 
         Args:
             agent_ids: List of agent identifiers to wait for
@@ -298,7 +308,10 @@ class GitNativeAgentBackend(AgentBackend):
         Returns:
             Dict mapping agent_id to their final status
         """
+        import time
+
         results: dict[str, AgentStatus] = {}
+        start_time = time.time()
 
         for agent_id in agent_ids:
             process = self._processes.get(agent_id)
@@ -306,13 +319,27 @@ class GitNativeAgentBackend(AgentBackend):
                 results[agent_id] = AgentStatus(agent_id=agent_id, is_finished=False)
                 continue
 
+            # Wait for process with timeout
             try:
-                stdout, _ = process.communicate(timeout=timeout)
-                is_finished = process.returncode is not None
+                remaining_timeout = None
+                if timeout:
+                    elapsed = time.time() - start_time
+                    remaining_timeout = max(0, timeout - elapsed)
+
+                process.wait(timeout=remaining_timeout)
+                is_finished = True
+
+                # Read output from log file
+                worktree_path = self._worktree_base / agent_id
+                log_file = worktree_path / ".claude-output.log"
+                implementation = None
+                if log_file.exists():
+                    implementation = log_file.read_text()
+
                 results[agent_id] = AgentStatus(
                     agent_id=agent_id,
                     is_finished=is_finished,
-                    implementation=stdout.decode() if stdout else None,
+                    implementation=implementation,
                 )
             except subprocess.TimeoutExpired:
                 results[agent_id] = AgentStatus(agent_id=agent_id, is_finished=False)

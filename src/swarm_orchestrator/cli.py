@@ -902,6 +902,8 @@ def watch():
       k/↑    Move selection up
       d      Toggle diff preview for selected session
       m      Merge selected session
+      s      Stop selected session (agent process)
+      x      Delete selected session (worktree + branch)
       r      Refresh session list
       q      Quit dashboard
     """
@@ -909,7 +911,8 @@ def watch():
 
     try:
         backend = _get_worktree_backend()
-        dashboard = SessionsDashboard(backend=backend)
+        agent_backend = _get_agent_backend()
+        dashboard = SessionsDashboard(backend=backend, agent_backend=agent_backend)
         dashboard.run()
     except KeyboardInterrupt:
         pass

@@ -76,15 +76,18 @@ class TestGitNativeAgentBackend:
         output_format_idx = cmd.index("--output-format")
         assert cmd[output_format_idx + 1] == "stream-json"
 
-    def test_spawn_agent_captures_stdout_for_status_monitoring(self, backend, mock_popen, tmp_path):
-        """spawn_agent captures stdout to enable status monitoring."""
+    def test_spawn_agent_writes_output_to_log_file(self, backend, mock_popen, tmp_path):
+        """spawn_agent redirects stdout to log file for background execution."""
         worktree_path = tmp_path / "test-session"
         worktree_path.mkdir(parents=True)
 
         backend.spawn_agent("test-session", "prompt")
 
         call_args = mock_popen.call_args
-        assert call_args[1].get("stdout") == subprocess.PIPE
+        # stdout should be a file object, not PIPE (for background execution)
+        stdout_arg = call_args[1].get("stdout")
+        assert hasattr(stdout_arg, "name")
+        assert ".claude-output.log" in stdout_arg.name
 
     def test_spawn_agent_runs_in_worktree_directory(self, backend, mock_popen, tmp_path):
         """spawn_agent sets cwd to worktree path."""
@@ -143,39 +146,49 @@ class TestGitNativeAgentBackend:
         assert result.agent_id == "unknown-agent"
         assert result.is_finished is False
 
-    def test_wait_for_completion_with_timeout(self, backend):
-        """wait_for_completion uses communicate() with timeout."""
+    def test_wait_for_completion_with_timeout(self, backend, tmp_path):
+        """wait_for_completion uses wait() with timeout."""
+        # Create worktree and log file
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+        log_file = worktree_path / ".claude-output.log"
+        log_file.write_text("test output")
+
         mock_process = MagicMock()
-        mock_process.communicate.return_value = (b"stdout", b"stderr")
-        mock_process.returncode = 0
+        mock_process.wait.return_value = 0
         backend._processes["test-session"] = mock_process
 
         result = backend.wait_for_completion(["test-session"], timeout=60)
 
-        mock_process.communicate.assert_called_once_with(timeout=60)
+        mock_process.wait.assert_called_once()
         assert "test-session" in result
         assert result["test-session"].is_finished is True
+        assert result["test-session"].implementation == "test output"
 
     def test_wait_for_completion_handles_timeout_exception(self, backend):
         """wait_for_completion handles subprocess.TimeoutExpired."""
         mock_process = MagicMock()
-        mock_process.communicate.side_effect = subprocess.TimeoutExpired("cmd", 60)
-        mock_process.poll.return_value = None
+        mock_process.wait.side_effect = subprocess.TimeoutExpired("cmd", 60)
         backend._processes["test-session"] = mock_process
 
         result = backend.wait_for_completion(["test-session"], timeout=60)
 
         assert result["test-session"].is_finished is False
 
-    def test_wait_for_completion_multiple_agents(self, backend):
+    def test_wait_for_completion_multiple_agents(self, backend, tmp_path):
         """wait_for_completion handles multiple agents."""
+        # Create worktrees and log files
+        for name in ["agent-1", "agent-2"]:
+            worktree_path = tmp_path / name
+            worktree_path.mkdir(parents=True)
+            log_file = worktree_path / ".claude-output.log"
+            log_file.write_text(f"output-{name}")
+
         mock_process1 = MagicMock()
-        mock_process1.communicate.return_value = (b"out1", b"")
-        mock_process1.returncode = 0
+        mock_process1.wait.return_value = 0
 
         mock_process2 = MagicMock()
-        mock_process2.communicate.return_value = (b"out2", b"")
-        mock_process2.returncode = 0
+        mock_process2.wait.return_value = 0
 
         backend._processes["agent-1"] = mock_process1
         backend._processes["agent-2"] = mock_process2

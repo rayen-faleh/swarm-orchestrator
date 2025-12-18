@@ -1,7 +1,7 @@
 {
-  "worktree_backend": "schaltwerk",
-  "agent_backend": "schaltwerk",
+  "worktree_backend": "git-native",
+  "agent_backend": "git-native",
   "llm_backend": "claude-cli",
   "llm_model": "claude-sonnet-4-20250514",
-  "llm_timeout": 600
+  "llm_timeout": 120
 }

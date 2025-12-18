@@ -1043,7 +1043,10 @@ class Orchestrator:
         """Show the interactive watch dashboard, returning when user presses 'q'."""
         from .tui import SessionsDashboard
 
-        dashboard = SessionsDashboard(backend=self._worktree_backend)
+        dashboard = SessionsDashboard(
+            backend=self._worktree_backend,
+            agent_backend=self._agent_backend,
+        )
         dashboard.run()
         # After returning from dashboard, show resume message
         self.console.print("\n   [dim]Resumed run command. Press 'w' to open dashboard again.[/]")

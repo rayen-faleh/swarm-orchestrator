@@ -14,7 +14,7 @@ from rich.layout import Layout
 from rich.text import Text
 from rich.syntax import Syntax
 
-from .backends.base import WorktreeBackend, SessionInfo, DiffResult
+from .backends.base import WorktreeBackend, AgentBackend, SessionInfo, DiffResult
 
 
 class SessionsDashboard:
@@ -26,12 +26,19 @@ class SessionsDashboard:
     - k/↑: Move selection up
     - d: Toggle diff preview
     - m: Merge selected session
+    - s: Stop selected session (agent only)
+    - x: Delete selected session
     - r: Refresh session list
     - q: Quit
     """
 
-    def __init__(self, backend: WorktreeBackend):
+    def __init__(
+        self,
+        backend: WorktreeBackend,
+        agent_backend: AgentBackend | None = None,
+    ):
         self.backend = backend
+        self.agent_backend = agent_backend
         self.sessions: list[SessionInfo] = []
         self.selected_index = 0
         self.running = False
@@ -72,6 +79,10 @@ class SessionsDashboard:
             self._toggle_diff()
         elif key == "m":
             self._merge_selected()
+        elif key == "s":
+            self._stop_selected()
+        elif key == "x":
+            self._delete_selected()
         elif key == "r":
             self.refresh_sessions()
             self.status_message = "Refreshed"
@@ -104,6 +115,50 @@ class SessionsDashboard:
             self.refresh_sessions()
         except Exception as e:
             self.status_message = f"Merge failed: {e}"
+
+    def _stop_selected(self) -> None:
+        """Stop the selected session's agent."""
+        session = self.get_selected_session()
+        if not session:
+            self.status_message = "No session selected"
+            return
+
+        if not self.agent_backend:
+            self.status_message = "No agent backend configured"
+            return
+
+        if not hasattr(self.agent_backend, "stop_agent"):
+            self.status_message = "Agent backend does not support stopping"
+            return
+
+        try:
+            stopped = self.agent_backend.stop_agent(session.name)
+            if stopped:
+                self.status_message = f"Stopped: {session.name}"
+            else:
+                self.status_message = f"Not running: {session.name}"
+            self.refresh_sessions()
+        except Exception as e:
+            self.status_message = f"Stop failed: {e}"
+
+    def _delete_selected(self) -> None:
+        """Delete the selected session and clean up resources."""
+        session = self.get_selected_session()
+        if not session:
+            self.status_message = "No session selected"
+            return
+
+        try:
+            # Stop any running agent first
+            if self.agent_backend and hasattr(self.agent_backend, "stop_agent"):
+                self.agent_backend.stop_agent(session.name)
+
+            # Delete the session via worktree backend
+            self.backend.delete_session(session.name, force=True)
+            self.status_message = f"Deleted: {session.name}"
+            self.refresh_sessions()
+        except Exception as e:
+            self.status_message = f"Delete failed: {e}"
 
     def render(self) -> Panel:
         """Render the dashboard as a Rich renderable."""
@@ -186,6 +241,8 @@ class SessionsDashboard:
             ("j/k", "navigate"),
             ("d", "diff"),
             ("m", "merge"),
+            ("s", "stop"),
+            ("x", "delete"),
             ("r", "refresh"),
             ("q", "quit"),
         ]
