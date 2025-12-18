@@ -257,25 +257,27 @@ class GitNativeAgentBackend(AgentBackend):
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
 
-        # Escape prompt for shell (single quotes with proper escaping)
-        escaped_prompt = prompt.replace("'", "'\"'\"'")
+        # Write a temporary shell script to avoid Terminal's 1024 char command limit
+        # The script reads the prompt from file and self-deletes after execution
+        script_file = worktree_path / ".swarm-run.sh"
+        script_content = f'''#!/bin/bash
+cd '{worktree_path}'
+PROMPT=$(cat '{prompt_file}')
+claude -p "$PROMPT" --dangerously-skip-permissions
+rm -f '{script_file}'
+'''
+        script_file.write_text(script_content)
+        script_file.chmod(0o755)
 
-        # Build the claude command to run in terminal
-        claude_cmd = f"cd '{worktree_path}' && claude -p '{escaped_prompt}' --dangerously-skip-permissions"
-
-        # Escape double quotes for AppleScript
-        escaped_cmd = claude_cmd.replace('"', '\\"')
-
-        # AppleScript to open a new Terminal window and run the command
+        # AppleScript to open a new Terminal window and run the script
         applescript = f'''
         tell application "Terminal"
             activate
-            set newTab to do script "{escaped_cmd}"
-            return id of window 1
+            do script "{script_file}"
         end tell
         '''
 
-        # Run osascript to open Terminal and execute the command
+        # Run osascript to open Terminal and execute the script
         process = subprocess.Popen(
             ["osascript", "-e", applescript],
             stdout=subprocess.PIPE,
