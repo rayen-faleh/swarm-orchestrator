@@ -16,9 +16,25 @@ from .decomposer import decompose_task
 from .installation import detect_installation_context
 from .config import SwarmConfig, load_config, save_config, get_backend_choices, BACKENDS
 from .backends import cursor_auth
+from .backends.base import WorktreeBackend
 
 
 console = Console()
+
+
+def _get_worktree_backend(config: SwarmConfig | None = None) -> WorktreeBackend:
+    """Create and return the appropriate worktree backend based on config."""
+    if config is None:
+        config = load_config()
+
+    if config.worktree_backend == "schaltwerk":
+        from .backends.schaltwerk import SchaltwerkWorktreeBackend
+        return SchaltwerkWorktreeBackend()
+    elif config.worktree_backend == "git-native":
+        from .backends.git_native import GitNativeWorktreeBackend
+        return GitNativeWorktreeBackend()
+    else:
+        raise ValueError(f"Unknown worktree backend: {config.worktree_backend}")
 
 
 def _get_git_root() -> Path:
@@ -646,6 +662,143 @@ def status():
         console.print("\n[dim]To authenticate, run:[/]")
         console.print("  swarm cursor login")
         console.print("\n[dim]Or set CURSOR_API_KEY environment variable.[/]")
+
+
+@main.command()
+@click.option(
+    "--active",
+    is_flag=True,
+    help="Show only active (running) sessions",
+)
+@click.option(
+    "--reviewed",
+    is_flag=True,
+    help="Show only reviewed sessions ready to merge",
+)
+def sessions(active: bool, reviewed: bool):
+    """List all swarm sessions with their status.
+
+    \b
+    Shows sessions created by swarm for agent work, including:
+    - Session name
+    - Current status (running, reviewed, etc.)
+    - Git branch name
+    """
+    console.print("\n[bold]📋 Swarm Sessions[/]\n")
+
+    try:
+        backend = _get_worktree_backend()
+
+        filter_type = "all"
+        if active:
+            filter_type = "active"
+        elif reviewed:
+            filter_type = "reviewed"
+
+        sessions_list = backend.list_sessions(filter_type)
+
+        if not sessions_list:
+            console.print("[dim]No sessions found[/]")
+            return
+
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Name", style="white")
+        table.add_column("Status", style="yellow")
+        table.add_column("Branch", style="dim")
+
+        for session in sessions_list:
+            status_style = {
+                "running": "yellow",
+                "reviewed": "green",
+                "spec": "dim",
+            }.get(session.status, "white")
+            table.add_row(
+                session.name,
+                f"[{status_style}]{session.status}[/]",
+                session.branch,
+            )
+
+        console.print(table)
+
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("session_name")
+def diff(session_name: str):
+    """Show the diff for a session.
+
+    \b
+    Displays the changes made in a session compared to its parent branch.
+    Shows files changed and the full unified diff output.
+    """
+    console.print(f"\n[bold]📝 Diff for session:[/] {session_name}\n")
+
+    try:
+        backend = _get_worktree_backend()
+
+        session = backend.get_session(session_name)
+        if session is None:
+            console.print(f"[bold red]Error:[/] Session '{session_name}' not found")
+            raise SystemExit(1)
+
+        diff_result = backend.get_diff(session_name)
+
+        if not diff_result.files:
+            console.print("[dim]No changes in this session[/]")
+            return
+
+        console.print(f"[cyan]Files changed:[/] {len(diff_result.files)}")
+        for f in diff_result.files:
+            console.print(f"  • {f}")
+
+        console.print("\n[bold]Diff:[/]")
+        console.print(diff_result.content)
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
+
+
+@main.command()
+@click.argument("session_name")
+@click.option(
+    "-m", "--message",
+    default=None,
+    help="Commit message for the merge (default: auto-generated)",
+)
+def merge(session_name: str, message: str | None):
+    """Merge a session's changes to the parent branch.
+
+    \b
+    Squash-merges the session's changes back to the parent branch
+    and cleans up the session worktree and branch.
+    """
+    console.print(f"\n[bold]🔀 Merging session:[/] {session_name}\n")
+
+    try:
+        backend = _get_worktree_backend()
+
+        session = backend.get_session(session_name)
+        if session is None:
+            console.print(f"[bold red]Error:[/] Session '{session_name}' not found")
+            raise SystemExit(1)
+
+        commit_msg = message or f"Merge session: {session_name}"
+        backend.merge_session(session_name, commit_msg)
+
+        console.print(f"[bold green]✅ Session '{session_name}' merged successfully![/]")
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
