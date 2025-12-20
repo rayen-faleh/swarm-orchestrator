@@ -29,6 +29,7 @@ class TestSwarmConfig:
         assert config.llm_backend == "claude-cli"
         assert config.llm_model == "claude-sonnet-4-20250514"
         assert config.llm_timeout == 120
+        assert config.cli_tool == "claude"
 
     def test_custom_values(self):
         """Config accepts custom values."""
@@ -138,6 +139,7 @@ class TestLoadConfig:
         assert config.worktree_backend == "schaltwerk"
         assert config.agent_backend == "schaltwerk"
         assert config.llm_backend == "claude-cli"
+        assert config.cli_tool == "claude"
 
     def test_invalid_json_raises_error(self, tmp_path):
         """load_config raises ValueError for invalid JSON."""
@@ -197,6 +199,7 @@ class TestConfigIntegration:
             llm_backend="anthropic-api",
             llm_model="claude-opus-4-20250514",
             llm_timeout=250,
+            cli_tool="opencode",
         )
         config_file = tmp_path / "config.json"
 
@@ -208,6 +211,7 @@ class TestConfigIntegration:
         assert loaded.llm_backend == original.llm_backend
         assert loaded.llm_model == original.llm_model
         assert loaded.llm_timeout == original.llm_timeout
+        assert loaded.cli_tool == original.cli_tool
 
 
 class TestBackendRegistry:
@@ -299,3 +303,80 @@ class TestGitNativeAgentBackendConfig:
         """get_backend_choices('agent') includes 'git-native'."""
         choices = get_backend_choices("agent")
         assert "git-native" in choices
+
+
+class TestCLIToolConfig:
+    """Tests for cli_tool configuration option."""
+
+    def test_backends_contains_cli_tool(self):
+        """BACKENDS contains 'cli_tool' entry."""
+        assert "cli_tool" in BACKENDS
+
+    def test_cli_tool_has_claude_and_opencode(self):
+        """BACKENDS['cli_tool'] contains 'claude' and 'opencode' entries."""
+        assert "claude" in BACKENDS["cli_tool"]
+        assert "opencode" in BACKENDS["cli_tool"]
+
+    def test_cli_tool_options_have_descriptions(self):
+        """Each cli_tool option has a description."""
+        for name, desc in BACKENDS["cli_tool"].items():
+            assert isinstance(desc, str)
+            assert len(desc) > 10
+
+    def test_get_backend_choices_cli_tool(self):
+        """get_backend_choices returns cli_tool options."""
+        choices = get_backend_choices("cli_tool")
+        assert "claude" in choices
+        assert "opencode" in choices
+
+    def test_default_cli_tool_is_claude(self):
+        """Default cli_tool is 'claude'."""
+        config = SwarmConfig()
+        assert config.cli_tool == "claude"
+
+    def test_cli_tool_accepts_claude(self):
+        """SwarmConfig accepts cli_tool='claude'."""
+        config = SwarmConfig(cli_tool="claude")
+        assert config.cli_tool == "claude"
+
+    def test_cli_tool_accepts_opencode(self):
+        """SwarmConfig accepts cli_tool='opencode'."""
+        config = SwarmConfig(cli_tool="opencode")
+        assert config.cli_tool == "opencode"
+
+    def test_invalid_cli_tool_raises_error(self):
+        """Invalid cli_tool raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            SwarmConfig(cli_tool="invalid")
+
+        assert "cli_tool" in str(exc_info.value)
+        assert "invalid" in str(exc_info.value)
+
+    def test_from_dict_with_cli_tool(self):
+        """from_dict correctly loads cli_tool."""
+        data = {"cli_tool": "opencode"}
+        config = SwarmConfig.from_dict(data)
+        assert config.cli_tool == "opencode"
+
+    def test_from_dict_defaults_cli_tool_to_claude(self):
+        """from_dict defaults cli_tool to 'claude' when not specified."""
+        data = {}
+        config = SwarmConfig.from_dict(data)
+        assert config.cli_tool == "claude"
+
+    def test_to_dict_includes_cli_tool(self):
+        """to_dict includes cli_tool field."""
+        config = SwarmConfig(cli_tool="opencode")
+        data = config.to_dict()
+        assert "cli_tool" in data
+        assert data["cli_tool"] == "opencode"
+
+    def test_cli_tool_roundtrip(self, tmp_path):
+        """cli_tool survives save/load roundtrip."""
+        original = SwarmConfig(cli_tool="opencode")
+        config_file = tmp_path / "config.json"
+
+        save_config(original, config_file)
+        loaded = load_config(config_file)
+
+        assert loaded.cli_tool == "opencode"

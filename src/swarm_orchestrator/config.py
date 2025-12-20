@@ -26,6 +26,10 @@ BACKENDS = {
         "claude-cli": "Uses 'claude' CLI tool - requires Claude Code installed (default)",
         "anthropic-api": "Uses Anthropic API directly - requires ANTHROPIC_API_KEY env var",
     },
+    "cli_tool": {
+        "claude": "Uses Claude Code CLI ('claude \"prompt\"') - default for git-native backend",
+        "opencode": "Uses OpenCode CLI ('opencode -p \"prompt\"') - requires opencode installed",
+    },
 }
 
 
@@ -59,6 +63,7 @@ class SwarmConfig:
         llm_backend: Backend for LLM calls ("claude-cli" or "anthropic-api")
         llm_model: Model to use for API backend (default: claude-sonnet-4-20250514)
         llm_timeout: Timeout for LLM calls in seconds (default: 120)
+        cli_tool: CLI tool for git-native backend ("claude" or "opencode")
     """
 
     worktree_backend: str = "schaltwerk"
@@ -66,12 +71,14 @@ class SwarmConfig:
     llm_backend: str = "claude-cli"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_timeout: int = 120
+    cli_tool: str = "claude"
 
     def __post_init__(self):
         """Validate configuration values."""
         valid_worktree = set(get_backend_choices("worktree"))
         valid_agent = set(get_backend_choices("agent"))
         valid_llm = set(get_backend_choices("llm"))
+        valid_cli_tool = set(get_backend_choices("cli_tool"))
 
         if self.worktree_backend not in valid_worktree:
             raise ValueError(
@@ -88,6 +95,11 @@ class SwarmConfig:
                 f"Invalid llm_backend: {self.llm_backend}. "
                 f"Valid options: {valid_llm}"
             )
+        if self.cli_tool not in valid_cli_tool:
+            raise ValueError(
+                f"Invalid cli_tool: {self.cli_tool}. "
+                f"Valid options: {valid_cli_tool}"
+            )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SwarmConfig":
@@ -98,6 +110,7 @@ class SwarmConfig:
             llm_backend=data.get("llm_backend", "claude-cli"),
             llm_model=data.get("llm_model", "claude-sonnet-4-20250514"),
             llm_timeout=data.get("llm_timeout", 120),
+            cli_tool=data.get("cli_tool", "claude"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -108,6 +121,7 @@ class SwarmConfig:
             "llm_backend": self.llm_backend,
             "llm_model": self.llm_model,
             "llm_timeout": self.llm_timeout,
+            "cli_tool": self.cli_tool,
         }
 
 
