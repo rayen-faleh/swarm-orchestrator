@@ -224,6 +224,7 @@ class GitNativeAgentBackend(AgentBackend):
         self,
         worktree_base: Path | str | None = None,
         store: SessionStore | None = None,
+        cli_tool: str = "claude",
     ):
         """
         Initialize the git-native agent backend.
@@ -231,18 +232,34 @@ class GitNativeAgentBackend(AgentBackend):
         Args:
             worktree_base: Base directory for worktrees. Defaults to .swarm/worktrees.
             store: SessionStore for PID persistence. Creates one if not provided.
+            cli_tool: CLI tool to use for agents ('claude' or 'opencode').
         """
         self._worktree_base = Path(worktree_base) if worktree_base else Path.cwd() / ".swarm" / "worktrees"
         self._store = store if store else SessionStore()
         self._processes: dict[str, subprocess.Popen] = {}
+        self._cli_tool = cli_tool
+
+    def _generate_command(self, prompt_file_var: str) -> str:
+        """
+        Generate the CLI command to run the agent.
+
+        Args:
+            prompt_file_var: The shell variable containing the prompt file path.
+
+        Returns:
+            The CLI command string to execute.
+        """
+        if self._cli_tool == "opencode":
+            # OpenCode uses -p flag for non-interactive mode (exits after completion)
+            return f'opencode -p "$(cat "{prompt_file_var}")"'
+        # Default to Claude with --dangerously-skip-permissions for automation
+        return f'claude "$(cat "{prompt_file_var}")" --dangerously-skip-permissions'
 
     def spawn_agent(self, session_name: str, prompt: str) -> str:
         """
-        Spawn a Claude CLI agent in a new Terminal.app window.
+        Spawn a CLI agent in a new Terminal.app window.
 
-        Opens a new macOS Terminal window using osascript and runs claude CLI with:
-        - -p flag for non-interactive/print mode with prompt as argument
-        - --dangerously-skip-permissions to bypass permission prompts
+        Opens a new macOS Terminal window and runs the configured CLI tool.
 
         Args:
             session_name: Session/worktree name
@@ -253,9 +270,12 @@ class GitNativeAgentBackend(AgentBackend):
         """
         worktree_path = self._worktree_base / session_name
 
-        # Write prompt to file - claude will read from this
+        # Write prompt to file - CLI tool will read from this
         prompt_file = worktree_path / ".swarm-prompt.md"
         prompt_file.write_text(prompt)
+
+        # Generate the CLI command based on configured tool
+        cli_command = self._generate_command("$PROMPT_FILE")
 
         # Create a .command file - macOS native way to launch scripts in Terminal
         # The .command extension makes it double-clickable and launchable via `open`
@@ -268,10 +288,7 @@ cd '{worktree_path}'
 # Read prompt from file to avoid command line length limits
 PROMPT_FILE='{prompt_file}'
 if [ -f "$PROMPT_FILE" ]; then
-    # IMPORTANT: Use interactive mode (no -p flag) to enable MCP server access
-    # The prompt is passed as a positional argument to pre-seed the session
-    # --dangerously-skip-permissions bypasses permission prompts for automation
-    claude "$(cat "$PROMPT_FILE")" --dangerously-skip-permissions
+    {cli_command}
 else
     echo "Error: Prompt file not found: $PROMPT_FILE"
     exit 1

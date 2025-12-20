@@ -224,6 +224,90 @@ class TestGitNativeAgentBackendDefaults:
         assert ".swarm" in str(backend._worktree_base)
         assert "worktrees" in str(backend._worktree_base)
 
+    def test_default_cli_tool_is_claude(self):
+        """Backend defaults to 'claude' CLI tool."""
+        backend = GitNativeAgentBackend()
+        assert backend._cli_tool == "claude"
+
+    def test_cli_tool_can_be_set_to_opencode(self):
+        """Backend accepts 'opencode' as CLI tool."""
+        backend = GitNativeAgentBackend(cli_tool="opencode")
+        assert backend._cli_tool == "opencode"
+
+
+class TestGenerateCommand:
+    """Tests for _generate_command method."""
+
+    @pytest.fixture
+    def backend_claude(self, tmp_path):
+        """Backend with claude CLI tool."""
+        return GitNativeAgentBackend(worktree_base=tmp_path, cli_tool="claude")
+
+    @pytest.fixture
+    def backend_opencode(self, tmp_path):
+        """Backend with opencode CLI tool."""
+        return GitNativeAgentBackend(worktree_base=tmp_path, cli_tool="opencode")
+
+    def test_generate_command_claude(self, backend_claude):
+        """_generate_command returns claude command with correct flags."""
+        cmd = backend_claude._generate_command("$PROMPT_FILE")
+        assert "claude" in cmd
+        assert "--dangerously-skip-permissions" in cmd
+        assert '$(cat "$PROMPT_FILE")' in cmd
+
+    def test_generate_command_opencode(self, backend_opencode):
+        """_generate_command returns opencode command with -p flag."""
+        cmd = backend_opencode._generate_command("$PROMPT_FILE")
+        assert "opencode" in cmd
+        assert "-p" in cmd
+        assert '$(cat "$PROMPT_FILE")' in cmd
+        assert "--dangerously-skip-permissions" not in cmd
+
+    def test_generate_command_opencode_non_interactive(self, backend_opencode):
+        """_generate_command for opencode uses -p for non-interactive mode."""
+        cmd = backend_opencode._generate_command("$PROMPT_FILE")
+        # OpenCode -p flag runs non-interactively and exits after completion
+        assert "opencode -p" in cmd
+
+
+class TestSpawnAgentWithCliTool:
+    """Tests for spawn_agent with different CLI tools."""
+
+    @pytest.fixture
+    def mock_popen(self):
+        """Create a mock Popen class."""
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.pid = 12345
+        with patch("subprocess.Popen", return_value=mock_process) as mock:
+            yield mock
+
+    def test_spawn_agent_uses_claude_cli(self, tmp_path, mock_popen):
+        """spawn_agent uses claude CLI when cli_tool='claude'."""
+        backend = GitNativeAgentBackend(worktree_base=tmp_path, cli_tool="claude")
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+
+        backend.spawn_agent("test-session", "test prompt")
+
+        command_file = worktree_path / ".swarm-agent.command"
+        content = command_file.read_text()
+        assert "claude" in content
+        assert "--dangerously-skip-permissions" in content
+
+    def test_spawn_agent_uses_opencode_cli(self, tmp_path, mock_popen):
+        """spawn_agent uses opencode CLI when cli_tool='opencode'."""
+        backend = GitNativeAgentBackend(worktree_base=tmp_path, cli_tool="opencode")
+        worktree_path = tmp_path / "test-session"
+        worktree_path.mkdir(parents=True)
+
+        backend.spawn_agent("test-session", "test prompt")
+
+        command_file = worktree_path / ".swarm-agent.command"
+        content = command_file.read_text()
+        assert "opencode -p" in content
+        assert "--dangerously-skip-permissions" not in content
+
 
 class TestGitNativeAgentBackendWorktreePath:
     """Tests for worktree path resolution."""

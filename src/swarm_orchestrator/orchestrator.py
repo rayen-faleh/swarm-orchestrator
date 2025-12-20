@@ -555,7 +555,7 @@ class Orchestrator:
         if self.config.agent_backend == "cursor-cli":
             return CursorCLIAgentBackend()
         if self.config.agent_backend == "git-native":
-            return GitNativeAgentBackend()
+            return GitNativeAgentBackend(cli_tool=self.config.cli_tool)
         raise ValueError(f"Unknown agent backend: {self.config.agent_backend}")
 
     def _display_decomposition(self, decomposition: DecompositionResult) -> None:
