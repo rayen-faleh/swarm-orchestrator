@@ -380,3 +380,52 @@ class TestCLIToolConfig:
         loaded = load_config(config_file)
 
         assert loaded.cli_tool == "opencode"
+
+
+class TestConfigToCommandIntegration:
+    """End-to-end tests: config file → GitNativeAgentBackend → command string."""
+
+    def test_config_file_to_claude_command(self, tmp_path):
+        """Config file with cli_tool='claude' generates correct claude command."""
+        from swarm_orchestrator.backends.git_native import GitNativeAgentBackend
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"cli_tool": "claude", "agent_backend": "git-native"}')
+
+        config = load_config(config_file)
+        backend = GitNativeAgentBackend(cli_tool=config.cli_tool)
+        cmd = backend._generate_command("$PROMPT_FILE")
+
+        assert "claude" in cmd
+        assert "--dangerously-skip-permissions" in cmd
+        assert "opencode" not in cmd
+
+    def test_config_file_to_opencode_command(self, tmp_path):
+        """Config file with cli_tool='opencode' generates correct opencode command."""
+        from swarm_orchestrator.backends.git_native import GitNativeAgentBackend
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"cli_tool": "opencode", "agent_backend": "git-native"}')
+
+        config = load_config(config_file)
+        backend = GitNativeAgentBackend(cli_tool=config.cli_tool)
+        cmd = backend._generate_command("$PROMPT_FILE")
+
+        assert "opencode -p" in cmd
+        assert "claude" not in cmd
+        assert "--dangerously-skip-permissions" not in cmd
+
+    def test_missing_cli_tool_defaults_to_claude(self, tmp_path):
+        """Config file without cli_tool defaults to claude command."""
+        from swarm_orchestrator.backends.git_native import GitNativeAgentBackend
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"agent_backend": "git-native"}')
+
+        config = load_config(config_file)
+        backend = GitNativeAgentBackend(cli_tool=config.cli_tool)
+        cmd = backend._generate_command("$PROMPT_FILE")
+
+        assert config.cli_tool == "claude"
+        assert "claude" in cmd
+        assert "--dangerously-skip-permissions" in cmd

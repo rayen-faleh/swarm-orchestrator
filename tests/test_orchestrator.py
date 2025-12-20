@@ -871,6 +871,30 @@ class TestGitNativeBackendFactory:
 
         assert isinstance(orch._agent_backend, GitNativeAgentBackend)
 
+    def test_orchestrator_passes_cli_tool_to_git_native_backend(self):
+        """Orchestrator passes cli_tool config to GitNativeAgentBackend."""
+        from swarm_orchestrator.backends import GitNativeAgentBackend
+
+        config = SwarmConfig(agent_backend="git-native", cli_tool="opencode")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+
+        assert isinstance(orch._agent_backend, GitNativeAgentBackend)
+        assert orch._agent_backend._cli_tool == "opencode"
+
+    def test_orchestrator_default_cli_tool_is_claude(self):
+        """Orchestrator defaults to 'claude' cli_tool for git-native backend."""
+        from swarm_orchestrator.backends import GitNativeAgentBackend
+
+        config = SwarmConfig(agent_backend="git-native")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config)
+
+        assert isinstance(orch._agent_backend, GitNativeAgentBackend)
+        assert orch._agent_backend._cli_tool == "claude"
+
 
 class TestSpawnAgentsUsesBakedBackends:
     """Tests that _spawn_agents_with_mcp uses the configured backends."""
