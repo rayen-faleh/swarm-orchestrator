@@ -715,3 +715,101 @@ class TestUpdateGlobalClaudeConfig:
         config = json.loads(config_path.read_text())
         assert "mcpServers" in config
         assert "swarm-orchestrator" in config["mcpServers"]
+
+
+class TestInitUpdatesGlobalConfig:
+    """Tests for init command updating global ~/.claude.json."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    def test_init_updates_global_claude_config(self, runner, tmp_path):
+        """Init should write MCP config to both .mcp.json and ~/.claude.json."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        with runner.isolated_filesystem(temp_dir=project_dir):
+            with patch("pathlib.Path.home", return_value=fake_home):
+                result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+
+            # Check project-level config
+            assert Path(".mcp.json").exists()
+            project_config = json.loads(Path(".mcp.json").read_text())
+            assert "swarm-orchestrator" in project_config["mcpServers"]
+
+            # Check global config
+            global_config_path = fake_home / ".claude.json"
+            assert global_config_path.exists()
+            global_config = json.loads(global_config_path.read_text())
+            assert "mcpServers" in global_config
+            assert "swarm-orchestrator" in global_config["mcpServers"]
+
+    def test_init_global_config_has_same_mcp_config(self, runner, tmp_path):
+        """Global config should have the same MCP server config as project config."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        with runner.isolated_filesystem(temp_dir=project_dir):
+            with patch("pathlib.Path.home", return_value=fake_home):
+                result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+
+            project_config = json.loads(Path(".mcp.json").read_text())
+            global_config = json.loads((fake_home / ".claude.json").read_text())
+
+            project_mcp = project_config["mcpServers"]["swarm-orchestrator"]
+            global_mcp = global_config["mcpServers"]["swarm-orchestrator"]
+
+            assert project_mcp == global_mcp
+
+    def test_init_output_mentions_global_config(self, runner, tmp_path):
+        """Init output should mention updating global config."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        with runner.isolated_filesystem(temp_dir=project_dir):
+            with patch("pathlib.Path.home", return_value=fake_home):
+                result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+            assert "~/.claude.json" in result.output or ".claude.json" in result.output
+
+    def test_init_preserves_existing_global_mcp_servers(self, runner, tmp_path):
+        """Init should preserve existing MCP servers in global config."""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        # Create existing global config with other servers
+        global_config_path = fake_home / ".claude.json"
+        existing = {
+            "mcpServers": {
+                "schaltwerk": {"command": "schaltwerk"},
+                "other-server": {"command": "other"}
+            }
+        }
+        global_config_path.write_text(json.dumps(existing))
+
+        with runner.isolated_filesystem(temp_dir=project_dir):
+            with patch("pathlib.Path.home", return_value=fake_home):
+                result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+
+            global_config = json.loads(global_config_path.read_text())
+            # All servers should be present
+            assert "schaltwerk" in global_config["mcpServers"]
+            assert "other-server" in global_config["mcpServers"]
+            assert "swarm-orchestrator" in global_config["mcpServers"]

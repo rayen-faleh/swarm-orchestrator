@@ -480,9 +480,14 @@ def init(force: bool, non_interactive: bool):
 
     config["mcpServers"]["swarm-orchestrator"] = _get_swarm_mcp_config(repo_root)
 
-    # Write MCP config
+    # Write MCP config (project-level)
     mcp_config_path.write_text(json.dumps(config, indent=2))
     console.print(f"\n   ✓ Created/updated {mcp_config_path}")
+
+    # Update global ~/.claude.json so agents in worktrees have MCP access
+    mcp_server_config = _get_swarm_mcp_config(repo_root)
+    _update_global_claude_config(mcp_server_config)
+    console.print(f"   ✓ Updated ~/.claude.json (global MCP config)")
 
     # Create .swarm directory
     swarm_dir.mkdir(exist_ok=True)
