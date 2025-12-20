@@ -608,3 +608,110 @@ class TestCursorCommands:
         # Should mention API key alternative
         output_lower = result.output.lower()
         assert "cursor_api_key" in output_lower or "api key" in output_lower or "status" in output_lower
+
+
+class TestUpdateGlobalClaudeConfig:
+    """Tests for the _update_global_claude_config function."""
+
+    @pytest.fixture
+    def temp_home(self, tmp_path, monkeypatch):
+        """Create a temporary home directory."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        return tmp_path
+
+    def test_creates_config_if_not_exists(self, temp_home):
+        """Should create ~/.claude.json if it doesn't exist."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        mcp_config = {"command": "swarm", "args": ["server"]}
+        _update_global_claude_config(mcp_config)
+
+        config_path = temp_home / ".claude.json"
+        assert config_path.exists()
+
+        config = json.loads(config_path.read_text())
+        assert "mcpServers" in config
+        assert "swarm-orchestrator" in config["mcpServers"]
+        assert config["mcpServers"]["swarm-orchestrator"] == mcp_config
+
+    def test_adds_to_existing_config_without_mcp_servers(self, temp_home):
+        """Should add mcpServers to existing config that lacks it."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        config_path = temp_home / ".claude.json"
+        config_path.write_text(json.dumps({"someOtherKey": "value"}))
+
+        mcp_config = {"command": "swarm", "args": ["server"]}
+        _update_global_claude_config(mcp_config)
+
+        config = json.loads(config_path.read_text())
+        assert config["someOtherKey"] == "value"
+        assert "mcpServers" in config
+        assert "swarm-orchestrator" in config["mcpServers"]
+
+    def test_preserves_existing_mcp_servers(self, temp_home):
+        """Should preserve other MCP servers in existing config."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        config_path = temp_home / ".claude.json"
+        existing = {
+            "mcpServers": {
+                "schaltwerk": {"command": "schaltwerk"},
+                "other-server": {"command": "other"}
+            }
+        }
+        config_path.write_text(json.dumps(existing))
+
+        mcp_config = {"command": "swarm", "args": ["server"]}
+        _update_global_claude_config(mcp_config)
+
+        config = json.loads(config_path.read_text())
+        assert "schaltwerk" in config["mcpServers"]
+        assert "other-server" in config["mcpServers"]
+        assert "swarm-orchestrator" in config["mcpServers"]
+
+    def test_updates_existing_swarm_orchestrator(self, temp_home):
+        """Should update swarm-orchestrator if already present."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        config_path = temp_home / ".claude.json"
+        existing = {
+            "mcpServers": {
+                "swarm-orchestrator": {"command": "old-command", "args": []}
+            }
+        }
+        config_path.write_text(json.dumps(existing))
+
+        new_config = {"command": "swarm", "args": ["server", "--state-file", "/new/path"]}
+        _update_global_claude_config(new_config)
+
+        config = json.loads(config_path.read_text())
+        assert config["mcpServers"]["swarm-orchestrator"] == new_config
+
+    def test_handles_malformed_json(self, temp_home):
+        """Should handle malformed JSON by creating new config."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        config_path = temp_home / ".claude.json"
+        config_path.write_text("{ invalid json }")
+
+        mcp_config = {"command": "swarm", "args": ["server"]}
+        _update_global_claude_config(mcp_config)
+
+        config = json.loads(config_path.read_text())
+        assert "mcpServers" in config
+        assert "swarm-orchestrator" in config["mcpServers"]
+
+    def test_handles_non_dict_json(self, temp_home):
+        """Should handle JSON that is not a dict by creating new config."""
+        from swarm_orchestrator.cli import _update_global_claude_config
+
+        config_path = temp_home / ".claude.json"
+        config_path.write_text('"just a string"')
+
+        mcp_config = {"command": "swarm", "args": ["server"]}
+        _update_global_claude_config(mcp_config)
+
+        config = json.loads(config_path.read_text())
+        assert "mcpServers" in config
+        assert "swarm-orchestrator" in config["mcpServers"]

@@ -64,6 +64,40 @@ def _get_git_root() -> Path:
         return Path.cwd()
 
 
+def _update_global_claude_config(mcp_server_config: dict) -> None:
+    """
+    Update the global ~/.claude.json with swarm-orchestrator MCP config.
+
+    This ensures agents in worktrees can access the MCP server, since
+    worktrees don't inherit project-level .mcp.json.
+
+    Args:
+        mcp_server_config: The MCP server config dict to set for swarm-orchestrator
+    """
+    config_path = Path.home() / ".claude.json"
+
+    # Load existing config or start fresh
+    config = {}
+    if config_path.exists():
+        try:
+            content = config_path.read_text()
+            loaded = json.loads(content)
+            if isinstance(loaded, dict):
+                config = loaded
+        except json.JSONDecodeError:
+            pass  # Start with empty config if malformed
+
+    # Ensure mcpServers exists
+    if "mcpServers" not in config:
+        config["mcpServers"] = {}
+
+    # Add/update swarm-orchestrator entry
+    config["mcpServers"]["swarm-orchestrator"] = mcp_server_config
+
+    # Write back
+    config_path.write_text(json.dumps(config, indent=2))
+
+
 def _get_swarm_mcp_config(repo_root: Path) -> dict:
     """
     Generate MCP server config with absolute paths.
