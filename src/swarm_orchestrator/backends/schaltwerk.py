@@ -169,3 +169,18 @@ class SchaltwerkAgentBackend(AgentBackend):
             is_finished=is_finished,
             implementation=impl,
         )
+
+    def stop_agent(self, session_name: str) -> bool:
+        """
+        Stop a running agent.
+
+        Note: Schaltwerk agents are managed by the MCP server and cannot be
+        directly stopped. Use cancel_session on the worktree backend to
+        terminate and clean up the session instead.
+
+        Returns:
+            False - Schaltwerk does not support direct agent termination.
+        """
+        # Schaltwerk manages agents via MCP - we don't have direct process control
+        # To stop an agent, use SchaltwerkWorktreeBackend.delete_session() instead
+        return False
