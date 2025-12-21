@@ -530,7 +530,10 @@ class Orchestrator:
         self.console = console or Console()
         self.config = config or SwarmConfig()
         self.client = get_client(timeout=timeout)
-        self.swarm_server = SwarmMCPServer(persistence_path=state_file)
+        self.swarm_server = SwarmMCPServer(
+            persistence_path=state_file,
+            compression_config=self.config,
+        )
         self._poll_interval = 5  # seconds between completion checks
         self.auto_merge = auto_merge
         self.skip_exploration = skip_exploration

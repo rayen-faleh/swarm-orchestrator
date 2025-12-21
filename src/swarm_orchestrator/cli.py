@@ -657,7 +657,11 @@ def server(state_file: str):
     """
     from .swarm_mcp.server import SwarmMCPServer
 
-    mcp_server = SwarmMCPServer(persistence_path=state_file)
+    config = load_config()
+    mcp_server = SwarmMCPServer(
+        persistence_path=state_file,
+        compression_config=config,
+    )
     mcp_server.run_stdio()
 
 
