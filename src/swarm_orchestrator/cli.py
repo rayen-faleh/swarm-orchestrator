@@ -543,6 +543,7 @@ CONFIG_KEYS = {
     "cli-tool": ("cli_tool", "cli_tool"),
     "llm-model": ("llm_model", None),
     "llm-timeout": ("llm_timeout", None),
+    "exploration-model": ("exploration_model", None),
 }
 
 

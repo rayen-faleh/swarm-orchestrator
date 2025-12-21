@@ -68,6 +68,7 @@ class SwarmConfig:
                   Options: "claude", "opencode", "cursor", "anthropic-api"
         llm_model: Model to use for API backend (default: claude-sonnet-4-20250514)
         llm_timeout: Timeout for LLM calls in seconds (default: 120)
+        exploration_model: Model for exploration phase (default: claude-haiku-3-5)
     """
 
     worktree_backend: str = "schaltwerk"
@@ -75,6 +76,7 @@ class SwarmConfig:
     cli_tool: str = "claude"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_timeout: int = 120
+    exploration_model: str = "claude-haiku-3-5"
 
     def __post_init__(self):
         """Validate configuration values."""
@@ -120,6 +122,7 @@ class SwarmConfig:
             cli_tool=cli_tool,
             llm_model=data.get("llm_model", "claude-sonnet-4-20250514"),
             llm_timeout=data.get("llm_timeout", 120),
+            exploration_model=data.get("exploration_model", "claude-haiku-3-5"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -130,6 +133,7 @@ class SwarmConfig:
             "cli_tool": self.cli_tool,
             "llm_model": self.llm_model,
             "llm_timeout": self.llm_timeout,
+            "exploration_model": self.exploration_model,
         }
 
 

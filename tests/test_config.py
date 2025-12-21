@@ -29,6 +29,7 @@ class TestSwarmConfig:
         assert config.cli_tool == "claude"
         assert config.llm_model == "claude-sonnet-4-20250514"
         assert config.llm_timeout == 120
+        assert config.exploration_model == "claude-haiku-3-5"
 
     def test_custom_values(self):
         """Config accepts custom values."""
@@ -38,11 +39,13 @@ class TestSwarmConfig:
             cli_tool="anthropic-api",
             llm_model="claude-opus-4-20250514",
             llm_timeout=300,
+            exploration_model="claude-sonnet-4-20250514",
         )
 
         assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-opus-4-20250514"
         assert config.llm_timeout == 300
+        assert config.exploration_model == "claude-sonnet-4-20250514"
 
     def test_invalid_worktree_backend(self):
         """Invalid worktree_backend raises ValueError."""
@@ -67,6 +70,7 @@ class TestSwarmConfig:
             "cli_tool": "anthropic-api",
             "llm_model": "claude-opus-4-20250514",
             "llm_timeout": 180,
+            "exploration_model": "claude-sonnet-4-20250514",
         }
 
         config = SwarmConfig.from_dict(data)
@@ -74,6 +78,7 @@ class TestSwarmConfig:
         assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-opus-4-20250514"
         assert config.llm_timeout == 180
+        assert config.exploration_model == "claude-sonnet-4-20250514"
 
     def test_from_dict_with_defaults(self):
         """SwarmConfig.from_dict uses defaults for missing keys."""
@@ -85,6 +90,7 @@ class TestSwarmConfig:
         assert config.agent_backend == "schaltwerk"
         assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-sonnet-4-20250514"
+        assert config.exploration_model == "claude-haiku-3-5"
 
     def test_to_dict(self):
         """SwarmConfig.to_dict returns dictionary representation."""
@@ -96,6 +102,7 @@ class TestSwarmConfig:
         assert data["agent_backend"] == "schaltwerk"
         assert data["cli_tool"] == "anthropic-api"
         assert data["llm_timeout"] == 200
+        assert data["exploration_model"] == "claude-haiku-3-5"
 
 
 class TestLoadConfig:
@@ -190,6 +197,7 @@ class TestConfigIntegration:
             cli_tool="opencode",
             llm_model="claude-opus-4-20250514",
             llm_timeout=250,
+            exploration_model="claude-sonnet-4-20250514",
         )
         config_file = tmp_path / "config.json"
 
@@ -201,6 +209,7 @@ class TestConfigIntegration:
         assert loaded.cli_tool == original.cli_tool
         assert loaded.llm_model == original.llm_model
         assert loaded.llm_timeout == original.llm_timeout
+        assert loaded.exploration_model == original.exploration_model
 
 
 class TestBackendRegistry:
@@ -465,3 +474,46 @@ class TestConfigToCommandIntegration:
         assert config.cli_tool == "claude"
         assert "claude" in cmd
         assert "--dangerously-skip-permissions" in cmd
+
+
+class TestExplorationModelConfig:
+    """Tests for exploration_model configuration field."""
+
+    def test_default_exploration_model(self):
+        """Default exploration_model is claude-haiku-3-5."""
+        config = SwarmConfig()
+        assert config.exploration_model == "claude-haiku-3-5"
+
+    def test_custom_exploration_model(self):
+        """exploration_model can be set to any model string."""
+        config = SwarmConfig(exploration_model="claude-sonnet-4-20250514")
+        assert config.exploration_model == "claude-sonnet-4-20250514"
+
+    def test_from_dict_loads_exploration_model(self):
+        """from_dict correctly loads exploration_model from dict."""
+        data = {"exploration_model": "claude-opus-4-20250514"}
+        config = SwarmConfig.from_dict(data)
+        assert config.exploration_model == "claude-opus-4-20250514"
+
+    def test_from_dict_defaults_exploration_model(self):
+        """from_dict uses default when exploration_model not specified."""
+        data = {}
+        config = SwarmConfig.from_dict(data)
+        assert config.exploration_model == "claude-haiku-3-5"
+
+    def test_to_dict_includes_exploration_model(self):
+        """to_dict includes exploration_model field."""
+        config = SwarmConfig(exploration_model="claude-opus-4-20250514")
+        data = config.to_dict()
+        assert "exploration_model" in data
+        assert data["exploration_model"] == "claude-opus-4-20250514"
+
+    def test_exploration_model_roundtrip(self, tmp_path):
+        """exploration_model survives save/load roundtrip."""
+        original = SwarmConfig(exploration_model="custom-model-123")
+        config_file = tmp_path / "config.json"
+
+        save_config(original, config_file)
+        loaded = load_config(config_file)
+
+        assert loaded.exploration_model == "custom-model-123"
