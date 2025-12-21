@@ -499,6 +499,8 @@ class Decomposer:
         """Build CLI command based on configured tool."""
         if self.cli_tool == "opencode":
             return ["opencode", "-p", prompt]
+        if self.cli_tool == "cursor":
+            return ["cursor-agent", "-p", prompt]
         # Default to claude
         return ["claude", "-p", prompt, "--output-format", "text"]
 

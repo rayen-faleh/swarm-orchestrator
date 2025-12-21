@@ -688,7 +688,12 @@ class Orchestrator:
 
     def _decompose(self, query: str) -> DecompositionResult:
         """Decompose the query into subtasks."""
-        return decompose_task(query, timeout=self.timeout, exploration_result=self._exploration_result)
+        return decompose_task(
+            query,
+            timeout=self.timeout,
+            exploration_result=self._exploration_result,
+            cli_tool=self.config.cli_tool,
+        )
 
     def _wait_for_user_merge(
         self,

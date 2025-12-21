@@ -428,6 +428,49 @@ This is an atomic task.""",
         with pytest.raises(DecomposerError, match="opencode"):
             decomposer.decompose("Test task")
 
+    def test_uses_cursor_cli(self, mock_subprocess):
+        """Should use 'cursor-agent' command when cli_tool='cursor'."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [{"id": "t", "description": "d", "prompt": "p"}]}',
+            stderr="",
+        )
+
+        decomposer = Decomposer(cli_tool="cursor")
+        decomposer.decompose("Test task")
+
+        mock_subprocess.assert_called_once()
+        call_args = mock_subprocess.call_args
+        assert call_args[0][0][0] == "cursor-agent"
+        assert "-p" in call_args[0][0]
+
+    def test_cursor_does_not_use_output_format(self, mock_subprocess):
+        """cursor CLI should not use --output-format flag."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [{"id": "t", "description": "d", "prompt": "p"}]}',
+            stderr="",
+        )
+
+        decomposer = Decomposer(cli_tool="cursor")
+        decomposer.decompose("Test task")
+
+        call_args = mock_subprocess.call_args
+        assert "--output-format" not in call_args[0][0]
+
+    def test_cursor_error_message_uses_cli_tool_name(self, mock_subprocess):
+        """Error messages should use 'cursor' when cli_tool='cursor'."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Some error",
+        )
+
+        decomposer = Decomposer(cli_tool="cursor")
+
+        with pytest.raises(DecomposerError, match="cursor"):
+            decomposer.decompose("Test task")
+
 
 class TestDecomposeTaskFunction:
     """Tests for the convenience decompose_task function."""

@@ -895,6 +895,45 @@ class TestGitNativeBackendFactory:
         assert isinstance(orch._agent_backend, GitNativeAgentBackend)
         assert orch._agent_backend._cli_tool == "claude"
 
+    def test_orchestrator_passes_cli_tool_to_decompose_task(self):
+        """Orchestrator passes cli_tool config to decompose_task."""
+        config = SwarmConfig(cli_tool="cursor")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config, skip_exploration=True)
+
+            with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+                mock_decompose.return_value = DecompositionResult(
+                    is_atomic=True,
+                    subtasks=[make_test_subtask()],
+                    original_query="test",
+                )
+
+                orch._decompose("test query")
+
+                mock_decompose.assert_called_once()
+                call_kwargs = mock_decompose.call_args.kwargs
+                assert call_kwargs.get("cli_tool") == "cursor"
+
+    def test_orchestrator_passes_opencode_cli_tool_to_decompose_task(self):
+        """Orchestrator passes opencode cli_tool to decompose_task."""
+        config = SwarmConfig(cli_tool="opencode")
+
+        with patch("swarm_orchestrator.orchestrator.get_client"):
+            orch = Orchestrator(config=config, skip_exploration=True)
+
+            with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+                mock_decompose.return_value = DecompositionResult(
+                    is_atomic=True,
+                    subtasks=[make_test_subtask()],
+                    original_query="test",
+                )
+
+                orch._decompose("test query")
+
+                call_kwargs = mock_decompose.call_args.kwargs
+                assert call_kwargs.get("cli_tool") == "opencode"
+
 
 class TestSpawnAgentsUsesBakedBackends:
     """Tests that _spawn_agents_with_mcp uses the configured backends."""

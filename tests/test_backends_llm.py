@@ -207,6 +207,53 @@ class TestClaudeCLIBackend:
 
         assert "opencode" in str(exc_info.value)
 
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_decompose_with_cursor_cli(self, mock_run):
+        """decompose() uses 'cursor-agent' command when cli_tool='cursor'."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [], "reasoning": "Simple"}',
+            stderr="",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="cursor")
+        backend.decompose("Add a button")
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        assert call_args[0][0][0] == "cursor-agent"
+        assert "-p" in call_args[0][0]
+
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_cursor_does_not_use_output_format(self, mock_run):
+        """cursor CLI does not use --output-format flag."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [], "reasoning": "Simple"}',
+            stderr="",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="cursor")
+        backend.decompose("Add a button")
+
+        call_args = mock_run.call_args
+        assert "--output-format" not in call_args[0][0]
+
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_cursor_error_message_uses_cli_tool_name(self, mock_run):
+        """Error messages use 'cursor' when cli_tool='cursor'."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Something went wrong",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="cursor")
+        with pytest.raises(LLMBackendError) as exc_info:
+            backend.decompose("test")
+
+        assert "cursor" in str(exc_info.value)
+
 
 class TestAnthropicAPIBackend:
     """Tests for AnthropicAPIBackend."""
