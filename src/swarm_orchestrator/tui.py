@@ -52,6 +52,7 @@ class SessionsDashboard:
         self.console = Console()
         self.diff_scroll_offset = 0
         self.sessions_scroll_offset = 0
+        self.sessions_viewport_size = 10  # Default viewport size
 
     def refresh_sessions(self) -> None:
         """Refresh the session list from the backend."""
@@ -104,12 +105,20 @@ class SessionsDashboard:
             self._scroll_sessions(5)
 
     def _move_selection(self, delta: int) -> None:
-        """Move selection by delta (wrapping around)."""
+        """Move selection by delta (wrapping around), auto-scrolling viewport."""
         if not self.sessions:
             return
         self.selected_index = (self.selected_index + delta) % len(self.sessions)
+        self._ensure_selection_visible()
         if self.show_diff:
             self._load_diff()
+
+    def _ensure_selection_visible(self) -> None:
+        """Auto-scroll viewport to keep selected session visible."""
+        if self.selected_index < self.sessions_scroll_offset:
+            self.sessions_scroll_offset = self.selected_index
+        elif self.selected_index >= self.sessions_scroll_offset + self.sessions_viewport_size:
+            self.sessions_scroll_offset = self.selected_index - self.sessions_viewport_size + 1
 
     def _toggle_diff(self) -> None:
         """Toggle diff preview."""
@@ -219,8 +228,18 @@ class SessionsDashboard:
         return Panel(layout, title=title, border_style="blue")
 
     def _render_sessions_table(self) -> Table:
-        """Render the sessions table with scroll offset support."""
-        table = Table(show_header=True, header_style="bold cyan", expand=True)
+        """Render the sessions table with viewport windowing and row count indicator."""
+        total = len(self.sessions)
+
+        # Build row count indicator for caption
+        if total > self.sessions_viewport_size:
+            start = self.sessions_scroll_offset + 1
+            end = min(self.sessions_scroll_offset + self.sessions_viewport_size, total)
+            caption = f"{start}-{end} of {total} sessions"
+        else:
+            caption = f"{total} sessions" if total else None
+
+        table = Table(show_header=True, header_style="bold cyan", expand=True, caption=caption)
         table.add_column("", width=2)  # Selection indicator
         table.add_column("Session", style="white")
         table.add_column("Status", style="yellow")
@@ -230,8 +249,9 @@ class SessionsDashboard:
             table.add_row("", Text("No sessions found", style="dim"), "", "")
             return table
 
-        # Apply scroll offset to visible sessions
-        visible_sessions = self.sessions[self.sessions_scroll_offset:]
+        # Apply viewport windowing
+        end_offset = self.sessions_scroll_offset + self.sessions_viewport_size
+        visible_sessions = self.sessions[self.sessions_scroll_offset:end_offset]
 
         for i, session in enumerate(visible_sessions):
             actual_index = i + self.sessions_scroll_offset

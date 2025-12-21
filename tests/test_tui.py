@@ -253,6 +253,100 @@ class TestSessionsDashboard:
         # Should be clamped to max (3 sessions - 1 = 2)
         assert dashboard.sessions_scroll_offset == 2
 
+    def test_sessions_table_shows_row_count_indicator(self, mock_backend):
+        """Sessions table should show row count indicator for long lists."""
+        # Create a list of 20 sessions
+        sessions = [
+            SessionInfo(name=f"task-agent-{i}", status="running", branch=f"git-native/task-agent-{i}")
+            for i in range(20)
+        ]
+        mock_backend.list_sessions.return_value = sessions
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+
+        # Set viewport size and scroll offset
+        dashboard.sessions_viewport_size = 5
+        dashboard.sessions_scroll_offset = 10
+
+        table = dashboard._render_sessions_table()
+
+        # Verify caption is set on the table
+        assert table.caption == "11-15 of 20 sessions"
+
+    def test_selection_auto_scrolls_viewport_down(self, mock_backend):
+        """Moving selection should auto-scroll viewport to keep selection visible."""
+        sessions = [
+            SessionInfo(name=f"task-agent-{i}", status="running", branch=f"git-native/task-agent-{i}")
+            for i in range(20)
+        ]
+        mock_backend.list_sessions.return_value = sessions
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        dashboard.sessions_viewport_size = 5
+
+        # Start at index 0, scroll offset 0
+        assert dashboard.selected_index == 0
+        assert dashboard.sessions_scroll_offset == 0
+
+        # Move to index 6 (beyond viewport of 5)
+        for _ in range(6):
+            dashboard.handle_input("j")
+
+        # Viewport should have scrolled to keep selection visible
+        # Selection is at 6, viewport size is 5, so offset should be at least 2
+        assert dashboard.sessions_scroll_offset >= 2
+
+    def test_selection_auto_scrolls_viewport_up(self, mock_backend):
+        """Moving selection up should auto-scroll viewport to keep selection visible."""
+        sessions = [
+            SessionInfo(name=f"task-agent-{i}", status="running", branch=f"git-native/task-agent-{i}")
+            for i in range(20)
+        ]
+        mock_backend.list_sessions.return_value = sessions
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        dashboard.sessions_viewport_size = 5
+
+        # Start at index 15, scroll offset 15
+        dashboard.selected_index = 15
+        dashboard.sessions_scroll_offset = 15
+
+        # Move up to index 10 (beyond top of current viewport)
+        for _ in range(5):
+            dashboard.handle_input("k")
+
+        # Viewport should have scrolled to keep selection visible
+        # Selection is at 10, so offset should be <= 10
+        assert dashboard.sessions_scroll_offset <= dashboard.selected_index
+
+    def test_viewport_shows_correct_window_of_sessions(self, mock_backend):
+        """Sessions table should show correct window of sessions."""
+        sessions = [
+            SessionInfo(name=f"session-{i:02d}", status="running", branch=f"branch-{i}")
+            for i in range(30)
+        ]
+        mock_backend.list_sessions.return_value = sessions
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        dashboard.sessions_viewport_size = 10
+        dashboard.sessions_scroll_offset = 10
+
+        table = dashboard._render_sessions_table()
+
+        from rich.console import Console
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True, width=120)
+        console.print(table)
+        output = console.file.getvalue()
+
+        # Sessions 10-19 should be visible
+        assert "session-10" in output
+        assert "session-19" in output
+        # Sessions 0-9 and 20+ should not be visible
+        assert "session-09" not in output
+        assert "session-00" not in output
+        assert "session-20" not in output
+
     def test_toggle_diff_resets_scroll(self, dashboard, mock_backend):
         """Toggling diff should reset scroll offset."""
         mock_backend.get_diff.return_value = DiffResult(
