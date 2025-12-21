@@ -701,3 +701,95 @@ class TestSwarmMCPIntegration:
 
             assert result["success"] is True
             assert result["all_finished"] is True
+
+
+# =============================================================================
+# Compression Integration Tests
+# =============================================================================
+
+class TestCompressionInGetAllImplementations:
+    """Tests for compression in get_all_implementations."""
+
+    def test_compression_enabled_compresses_large_diffs(self):
+        """Large diffs should be compressed when enabled."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        config = SwarmConfig(
+            enable_diff_compression=True,
+            compression_min_tokens=50,  # Low threshold for testing
+            compression_target_ratio=0.5,
+        )
+        state = SwarmState(compression_config=config)
+        state.create_task("task-1", ["agent-0"], {"agent-0": "session-0"})
+
+        # Create a large diff that exceeds threshold
+        large_diff = "diff --git a/foo.py b/foo.py\n" + "\n".join([
+            f"+# line {i} with extra verbose content words here" for i in range(100)
+        ])
+        state.mark_agent_finished("task-1", "agent-0", large_diff)
+
+        result = state.get_all_implementations("task-1")
+
+        assert result["success"] is True
+        impl = result["implementations"][0]
+        assert "condensed_diff" in impl
+        # Compression stats should be present
+        assert "compression" in impl
+        assert "original_tokens" in impl["compression"]
+        assert "compressed_tokens" in impl["compression"]
+
+    def test_compression_disabled_returns_original(self):
+        """Diffs should not be compressed when disabled."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        config = SwarmConfig(enable_diff_compression=False)
+        state = SwarmState(compression_config=config)
+        state.create_task("task-1", ["agent-0"], {"agent-0": "session-0"})
+
+        diff = "diff --git a/foo.py b/foo.py\n+def foo(): return 1"
+        state.mark_agent_finished("task-1", "agent-0", diff)
+
+        result = state.get_all_implementations("task-1")
+
+        assert result["success"] is True
+        impl = result["implementations"][0]
+        # Original condensed diff should be returned
+        assert "+def foo(): return 1" in impl["condensed_diff"]
+        # No compression stats when disabled
+        assert impl.get("compression") is None
+
+    def test_small_diffs_bypass_compression(self):
+        """Diffs below threshold should bypass compression."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        config = SwarmConfig(
+            enable_diff_compression=True,
+            compression_min_tokens=500,  # Default high threshold
+        )
+        state = SwarmState(compression_config=config)
+        state.create_task("task-1", ["agent-0"], {"agent-0": "session-0"})
+
+        small_diff = "diff --git a/foo.py b/foo.py\n+x=1"
+        state.mark_agent_finished("task-1", "agent-0", small_diff)
+
+        result = state.get_all_implementations("task-1")
+
+        assert result["success"] is True
+        impl = result["implementations"][0]
+        # Original diff preserved
+        assert "+x=1" in impl["condensed_diff"]
+        # No compression applied (below threshold)
+        assert impl.get("compression") is None
+
+    def test_state_without_compression_config_works(self):
+        """SwarmState without compression config uses defaults."""
+        state = SwarmState()  # No config
+        state.create_task("task-1", ["agent-0"], {"agent-0": "session-0"})
+
+        diff = "diff --git a/foo.py b/foo.py\n+def foo(): pass"
+        state.mark_agent_finished("task-1", "agent-0", diff)
+
+        result = state.get_all_implementations("task-1")
+
+        assert result["success"] is True
+        assert len(result["implementations"]) == 1

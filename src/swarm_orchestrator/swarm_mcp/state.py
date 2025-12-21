@@ -25,6 +25,7 @@ from .diff_utils import (
     DiffStats,
     create_implementation_summary,
 )
+from .compression import DiffCompressor
 
 
 class AgentStatus(Enum):
@@ -157,16 +158,19 @@ class SwarmState:
     Uses file locking for safe concurrent access from multiple agents.
     """
 
-    def __init__(self, persistence_path: Optional[str] = None):
+    def __init__(self, persistence_path: Optional[str] = None, compression_config=None):
         """
         Initialize state manager.
 
         Args:
             persistence_path: Optional path to JSON file for state persistence.
+            compression_config: Optional SwarmConfig with compression settings.
         """
         self.persistence_path = persistence_path
         self._tasks: dict[str, TaskState] = {}
         self._lock_path = f"{persistence_path}.lock" if persistence_path else None
+        self._compression_config = compression_config
+        self._compressor: Optional[DiffCompressor] = None
 
         # Ensure parent directory exists
         if persistence_path:
@@ -289,6 +293,50 @@ class SwarmState:
             "all_finished": remaining == 0,
         }
 
+    def _get_compressor(self) -> Optional[DiffCompressor]:
+        """Get or create the diff compressor based on config."""
+        if self._compression_config is None:
+            return None
+        if not getattr(self._compression_config, 'enable_diff_compression', True):
+            return None
+        if self._compressor is None:
+            ratio = getattr(self._compression_config, 'compression_target_ratio', 0.3)
+            self._compressor = DiffCompressor(target_ratio=ratio)
+        return self._compressor
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count using simple word splitting."""
+        return len(text.split())
+
+    def _compress_diff(self, diff: str) -> tuple[str, Optional[dict]]:
+        """
+        Compress a diff if enabled and above threshold.
+
+        Returns:
+            Tuple of (compressed_diff, compression_stats or None)
+        """
+        if not diff:
+            return diff, None
+
+        compressor = self._get_compressor()
+        if compressor is None:
+            return diff, None
+
+        min_tokens = getattr(self._compression_config, 'compression_min_tokens', 500)
+        original_tokens = self._estimate_tokens(diff)
+
+        if original_tokens < min_tokens:
+            return diff, None
+
+        compressed = compressor.compress(diff)
+        compressed_tokens = self._estimate_tokens(compressed)
+
+        # Always report stats when above threshold (even if compression didn't reduce size)
+        return compressed, {
+            "original_tokens": original_tokens,
+            "compressed_tokens": compressed_tokens,
+        }
+
     def get_all_implementations(self, task_id: str) -> dict:
         """
         Get all implementations for a task.
@@ -296,6 +344,7 @@ class SwarmState:
         Returns structured summaries with:
         - Metadata (files changed, stats)
         - Condensed diff (no context, normalized whitespace)
+        - Compression stats (if compression was applied)
 
         Only available after all agents have finished.
 
@@ -323,16 +372,19 @@ class SwarmState:
         for agent_id in task.agent_ids:
             impl = task.implementations.get(agent_id)
             if impl:
-                implementations.append({
+                condensed, compression_stats = self._compress_diff(impl.condensed_diff)
+                impl_data = {
                     "agent_id": agent_id,
                     "session_name": impl.session_name,
                     "summary": {
                         "files_changed": impl.stats.files_changed,
                         "stats": impl.stats.to_dict(),
                     },
-                    # Condensed diff: no context lines, normalized whitespace
-                    "condensed_diff": impl.condensed_diff,
-                })
+                    "condensed_diff": condensed,
+                }
+                if compression_stats:
+                    impl_data["compression"] = compression_stats
+                implementations.append(impl_data)
             else:
                 # Fallback for missing implementation
                 implementations.append({
