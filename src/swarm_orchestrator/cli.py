@@ -463,6 +463,9 @@ def init(force: bool, non_interactive: bool):
     llm_backend = _prompt_backend_selection(
         "llm", "LLM Backend (task decomposition)", is_interactive
     )
+    cli_tool = _prompt_backend_selection(
+        "cli_tool", "CLI Tool (agent command)", is_interactive
+    )
 
     # Optional model selection for anthropic-api
     llm_model = "claude-sonnet-4-20250514"
@@ -505,6 +508,7 @@ def init(force: bool, non_interactive: bool):
         agent_backend=agent_backend,
         llm_backend=llm_backend,
         llm_model=llm_model,
+        cli_tool=cli_tool,
     )
     save_config(swarm_config)
     console.print(f"   ✓ Created {swarm_dir}/config.json")
@@ -514,6 +518,7 @@ def init(force: bool, non_interactive: bool):
     console.print(f"   Worktree: {worktree_backend}")
     console.print(f"   Agent: {agent_backend}")
     console.print(f"   LLM: {llm_backend}")
+    console.print(f"   CLI Tool: {cli_tool}")
     if llm_backend == "anthropic-api":
         console.print(f"   Model: {llm_model}")
     console.print(f"\n[dim]State file:[/] {repo_root / '.swarm' / 'state.json'}")
@@ -541,6 +546,7 @@ CONFIG_KEYS = {
     "llm-backend": ("llm_backend", "llm"),
     "llm-model": ("llm_model", None),
     "llm-timeout": ("llm_timeout", None),
+    "cli-tool": ("cli_tool", "cli_tool"),
 }
 
 

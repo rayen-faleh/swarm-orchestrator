@@ -224,19 +224,21 @@ class TestInitCommand:
         """Interactive mode should prompt for all backend selections."""
         with runner.isolated_filesystem(temp_dir=temp_project):
             # Simulate user selecting defaults for all prompts (input "1" for each)
-            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
+            # Now includes cli_tool prompt
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
 
             assert result.exit_code == 0
             # Should prompt for backends
             assert "worktree" in result.output.lower()
             assert "agent" in result.output.lower()
             assert "llm" in result.output.lower()
+            assert "cli tool" in result.output.lower()
 
     def test_init_interactive_creates_config_with_selections(self, runner, temp_project):
         """Interactive mode should create config.json with selected backends."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # Select option 1 for each backend
-            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
+            # Select option 1 for each backend (now includes cli_tool)
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
 
             assert result.exit_code == 0
             assert Path(".swarm/config.json").exists()
@@ -245,12 +247,13 @@ class TestInitCommand:
             assert "worktree_backend" in config
             assert "agent_backend" in config
             assert "llm_backend" in config
+            assert "cli_tool" in config
 
     def test_init_interactive_anthropic_api_prompts_for_model(self, runner, temp_project):
         """When anthropic-api is selected, should prompt for model preference."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # Select: 1 (worktree), 1 (agent), 2 (anthropic-api), 1 (default model)
-            result = runner.invoke(main, ["init"], input="1\n1\n2\n1\n")
+            # Select: 1 (worktree), 1 (agent), 2 (anthropic-api), 1 (cli_tool), 1 (default model)
+            result = runner.invoke(main, ["init"], input="1\n1\n2\n1\n1\n")
 
             assert result.exit_code == 0
             config = json.loads(Path(".swarm/config.json").read_text())
@@ -269,19 +272,40 @@ class TestInitCommand:
                 assert config["worktree_backend"] == "schaltwerk"
                 assert config["agent_backend"] == "schaltwerk"
                 assert config["llm_backend"] == "claude-cli"
+                assert config["cli_tool"] == "claude"
 
     def test_init_force_allows_reinit(self, runner, temp_project):
         """--force with interactive should allow re-initialization."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # First init
-            runner.invoke(main, ["init"], input="1\n1\n1\n")
+            # First init (4 prompts: worktree, agent, llm, cli_tool)
+            runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
 
-            # Second init with force
-            result = runner.invoke(main, ["init", "--force"], input="1\n1\n2\n1\n")
+            # Second init with force (5 prompts: worktree, agent, llm, cli_tool, model)
+            result = runner.invoke(main, ["init", "--force"], input="1\n1\n2\n1\n1\n")
 
             assert result.exit_code == 0
             config = json.loads(Path(".swarm/config.json").read_text())
             assert config["llm_backend"] == "anthropic-api"
+
+    def test_init_cli_tool_appears_in_summary(self, runner, temp_project):
+        """Init should display selected cli_tool in configuration summary."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            result = runner.invoke(main, ["init", "--non-interactive"])
+
+            assert result.exit_code == 0
+            # Should show cli tool in the configuration summary
+            assert "cli tool" in result.output.lower()
+            assert "claude" in result.output.lower()
+
+    def test_init_interactive_cli_tool_selection_opencode(self, runner, temp_project):
+        """Interactive mode should allow selecting opencode as cli_tool."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # Select: 1 (worktree), 1 (agent), 1 (llm), 2 (opencode)
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n2\n")
+
+            assert result.exit_code == 0
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["cli_tool"] == "opencode"
 
 
 class TestRunCommandWithMCP:
@@ -534,6 +558,46 @@ class TestConfigCommand:
             # Verify change persisted
             config = json.loads(Path(".swarm/config.json").read_text())
             assert config["llm_model"] == "claude-opus-4-20250514"
+
+    def test_config_set_cli_tool(self, runner, temp_project):
+        """'swarm config set' should allow setting cli-tool."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "cli-tool", "opencode"])
+
+            assert result.exit_code == 0
+
+            # Verify change persisted
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["cli_tool"] == "opencode"
+
+    def test_config_set_cli_tool_rejects_invalid(self, runner, temp_project):
+        """'swarm config set' should reject invalid cli-tool values."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "cli-tool", "invalid-tool"])
+
+            assert result.exit_code != 0
+            # Should list valid options
+            assert "claude" in result.output
+            assert "opencode" in result.output
+
+    def test_config_show_displays_cli_tool(self, runner, temp_project):
+        """'swarm config show' should display cli-tool setting."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code == 0
+            # Should show cli-tool in the output
+            assert "cli-tool" in result.output or "cli_tool" in result.output
+            assert "claude" in result.output
 
 
 class TestCursorCommands:
