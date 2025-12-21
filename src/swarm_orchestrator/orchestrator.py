@@ -890,6 +890,12 @@ class Orchestrator:
                 self.console.print(f"      ✓ {session_prefix} (already cleaned)")
                 continue
 
+            # Stop agent first (closes Terminal window for git-native backend)
+            try:
+                self._agent_backend.stop_agent(actual_session)
+            except Exception:
+                pass  # Continue cleanup even if stop fails
+
             try:
                 self._worktree_backend.delete_session(actual_session, force=True)
                 self.console.print(f"      ✓ Cancelled {actual_session}")

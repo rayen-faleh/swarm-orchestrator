@@ -983,6 +983,86 @@ class TestSpawnAgentsUsesBakedBackends:
         mock_worktree_backend.delete_session.assert_any_call("agent-0", force=True)
         mock_worktree_backend.delete_session.assert_any_call("agent-1", force=True)
 
+    def test_cleanup_sessions_calls_stop_agent_before_delete(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend
+    ):
+        """_cleanup_sessions should call stop_agent before delete_session."""
+        from swarm_orchestrator.backends import SessionInfo
+
+        mock_worktree_backend.list_sessions.return_value = [
+            SessionInfo(name="agent-0", status="running", branch="b1"),
+        ]
+        mock_agent_backend.stop_agent.return_value = True
+
+        call_order = []
+        mock_agent_backend.stop_agent.side_effect = lambda name: call_order.append(("stop", name)) or True
+        mock_worktree_backend.delete_session.side_effect = lambda name, force: call_order.append(("delete", name))
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._cleanup_sessions(["agent-0"])
+
+        # stop_agent should be called before delete_session
+        assert call_order == [("stop", "agent-0"), ("delete", "agent-0")]
+
+    def test_cleanup_sessions_handles_schaltwerk_stop_agent_false(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend
+    ):
+        """_cleanup_sessions should proceed even when stop_agent returns False (schaltwerk)."""
+        from swarm_orchestrator.backends import SessionInfo
+
+        mock_worktree_backend.list_sessions.return_value = [
+            SessionInfo(name="agent-0", status="running", branch="b1"),
+        ]
+        # Schaltwerk backend returns False for stop_agent
+        mock_agent_backend.stop_agent.return_value = False
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._cleanup_sessions(["agent-0"])
+
+        # Should still call delete_session even if stop_agent returned False
+        mock_agent_backend.stop_agent.assert_called_once_with("agent-0")
+        mock_worktree_backend.delete_session.assert_called_once_with("agent-0", force=True)
+
+    def test_cleanup_sessions_continues_on_stop_agent_exception(
+        self, mock_schaltwerk_client, mock_worktree_backend, mock_agent_backend
+    ):
+        """_cleanup_sessions should continue cleanup even if stop_agent raises exception."""
+        from swarm_orchestrator.backends import SessionInfo
+
+        mock_worktree_backend.list_sessions.return_value = [
+            SessionInfo(name="agent-0", status="running", branch="b1"),
+            SessionInfo(name="agent-1", status="running", branch="b2"),
+        ]
+        # First stop_agent raises, second succeeds
+        mock_agent_backend.stop_agent.side_effect = [Exception("stop failed"), True]
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+
+            orch = Orchestrator(
+                worktree_backend=mock_worktree_backend,
+                agent_backend=mock_agent_backend,
+            )
+
+            orch._cleanup_sessions(["agent-0", "agent-1"])
+
+        # Should still delete both sessions
+        assert mock_worktree_backend.delete_session.call_count == 2
+
 
 # =============================================================================
 # Tests for watch dashboard toggle during run
@@ -1080,7 +1160,10 @@ class TestWatchToggleDuringRun:
 
             orchestrator_for_watch._show_watch_dashboard()
 
-            MockDashboard.assert_called_once_with(backend=orchestrator_for_watch._worktree_backend)
+            MockDashboard.assert_called_once_with(
+                backend=orchestrator_for_watch._worktree_backend,
+                agent_backend=orchestrator_for_watch._agent_backend,
+            )
             mock_dashboard_instance.run.assert_called_once()
 
     def test_wait_for_mcp_completion_shows_help_text(self, orchestrator_for_watch, capsys):
