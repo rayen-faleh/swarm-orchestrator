@@ -69,6 +69,9 @@ class SwarmConfig:
         llm_model: Model to use for API backend (default: claude-sonnet-4-20250514)
         llm_timeout: Timeout for LLM calls in seconds (default: 120)
         exploration_model: Model for exploration phase (default: claude-haiku-3-5)
+        enable_diff_compression: Whether to compress diffs (default: True)
+        compression_min_tokens: Minimum tokens before compression kicks in (default: 500)
+        compression_target_ratio: Target compression ratio, 0.1-1.0 (default: 0.3)
     """
 
     worktree_backend: str = "schaltwerk"
@@ -77,6 +80,9 @@ class SwarmConfig:
     llm_model: str = "claude-sonnet-4-20250514"
     llm_timeout: int = 120
     exploration_model: str = "claude-haiku-3-5"
+    enable_diff_compression: bool = True
+    compression_min_tokens: int = 500
+    compression_target_ratio: float = 0.3
 
     def __post_init__(self):
         """Validate configuration values."""
@@ -98,6 +104,11 @@ class SwarmConfig:
             raise ValueError(
                 f"Invalid cli_tool: {self.cli_tool}. "
                 f"Valid options: {valid_cli_tool}"
+            )
+        if not (0.1 <= self.compression_target_ratio <= 1.0):
+            raise ValueError(
+                f"Invalid compression_target_ratio: {self.compression_target_ratio}. "
+                f"Must be between 0.1 and 1.0"
             )
 
     @classmethod
@@ -123,6 +134,9 @@ class SwarmConfig:
             llm_model=data.get("llm_model", "claude-sonnet-4-20250514"),
             llm_timeout=data.get("llm_timeout", 120),
             exploration_model=data.get("exploration_model", "claude-haiku-3-5"),
+            enable_diff_compression=data.get("enable_diff_compression", True),
+            compression_min_tokens=data.get("compression_min_tokens", 500),
+            compression_target_ratio=data.get("compression_target_ratio", 0.3),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -134,6 +148,9 @@ class SwarmConfig:
             "llm_model": self.llm_model,
             "llm_timeout": self.llm_timeout,
             "exploration_model": self.exploration_model,
+            "enable_diff_compression": self.enable_diff_compression,
+            "compression_min_tokens": self.compression_min_tokens,
+            "compression_target_ratio": self.compression_target_ratio,
         }
 
 

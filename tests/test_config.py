@@ -476,6 +476,96 @@ class TestConfigToCommandIntegration:
         assert "--dangerously-skip-permissions" in cmd
 
 
+class TestCompressionConfig:
+    """Tests for compression configuration fields."""
+
+    def test_default_compression_values(self):
+        """Default compression settings are sensible."""
+        config = SwarmConfig()
+        assert config.enable_diff_compression is True
+        assert config.compression_min_tokens == 500
+        assert config.compression_target_ratio == 0.3
+
+    def test_custom_compression_values(self):
+        """Compression settings can be customized."""
+        config = SwarmConfig(
+            enable_diff_compression=False,
+            compression_min_tokens=1000,
+            compression_target_ratio=0.5,
+        )
+        assert config.enable_diff_compression is False
+        assert config.compression_min_tokens == 1000
+        assert config.compression_target_ratio == 0.5
+
+    def test_compression_ratio_too_low_raises_error(self):
+        """compression_target_ratio below 0.1 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            SwarmConfig(compression_target_ratio=0.05)
+        assert "compression_target_ratio" in str(exc_info.value)
+
+    def test_compression_ratio_too_high_raises_error(self):
+        """compression_target_ratio above 1.0 raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            SwarmConfig(compression_target_ratio=1.5)
+        assert "compression_target_ratio" in str(exc_info.value)
+
+    def test_compression_ratio_at_bounds_is_valid(self):
+        """compression_target_ratio at 0.1 and 1.0 are valid."""
+        config_low = SwarmConfig(compression_target_ratio=0.1)
+        assert config_low.compression_target_ratio == 0.1
+
+        config_high = SwarmConfig(compression_target_ratio=1.0)
+        assert config_high.compression_target_ratio == 1.0
+
+    def test_from_dict_loads_compression_settings(self):
+        """from_dict correctly loads compression settings."""
+        data = {
+            "enable_diff_compression": False,
+            "compression_min_tokens": 200,
+            "compression_target_ratio": 0.4,
+        }
+        config = SwarmConfig.from_dict(data)
+        assert config.enable_diff_compression is False
+        assert config.compression_min_tokens == 200
+        assert config.compression_target_ratio == 0.4
+
+    def test_from_dict_defaults_compression_settings(self):
+        """from_dict uses defaults when compression settings not specified."""
+        data = {}
+        config = SwarmConfig.from_dict(data)
+        assert config.enable_diff_compression is True
+        assert config.compression_min_tokens == 500
+        assert config.compression_target_ratio == 0.3
+
+    def test_to_dict_includes_compression_settings(self):
+        """to_dict includes all compression fields."""
+        config = SwarmConfig(
+            enable_diff_compression=False,
+            compression_min_tokens=750,
+            compression_target_ratio=0.6,
+        )
+        data = config.to_dict()
+        assert data["enable_diff_compression"] is False
+        assert data["compression_min_tokens"] == 750
+        assert data["compression_target_ratio"] == 0.6
+
+    def test_compression_settings_roundtrip(self, tmp_path):
+        """Compression settings survive save/load roundtrip."""
+        original = SwarmConfig(
+            enable_diff_compression=False,
+            compression_min_tokens=800,
+            compression_target_ratio=0.7,
+        )
+        config_file = tmp_path / "config.json"
+
+        save_config(original, config_file)
+        loaded = load_config(config_file)
+
+        assert loaded.enable_diff_compression == original.enable_diff_compression
+        assert loaded.compression_min_tokens == original.compression_min_tokens
+        assert loaded.compression_target_ratio == original.compression_target_ratio
+
+
 class TestExplorationModelConfig:
     """Tests for exploration_model configuration field."""
 
