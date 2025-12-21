@@ -661,6 +661,14 @@ class Orchestrator:
         # Determine overall success based on consensus (not merge - user merges manually)
         overall_success = all(r.vote_result.consensus_reached for r in subtask_results)
 
+        # Launch post-completion dashboard when auto_merge=False and there are winners
+        if not self.auto_merge:
+            winner_sessions = [
+                r.winner_session for r in subtask_results if r.winner_session
+            ]
+            if winner_sessions:
+                self._launch_post_completion_dashboard(winner_sessions)
+
         return OrchestrationResult(
             query=query,
             decomposition=decomposition,
@@ -1064,6 +1072,28 @@ class Orchestrator:
         dashboard.run()
         # After returning from dashboard, show resume message
         self.console.print("\n   [dim]Resumed run command. Press 'w' to open dashboard again.[/]")
+
+    def _launch_post_completion_dashboard(self, winner_sessions: list[str]) -> None:
+        """Launch the TUI dashboard after all subtasks complete for manual merge review.
+
+        Displays guidance message and launches SessionsDashboard so user can
+        review diffs and merge the winning session(s) before exiting.
+        """
+        from .tui import SessionsDashboard
+
+        self.console.print("\n" + "═" * 50)
+        self.console.print("[bold green]✅ All subtasks complete![/]")
+        self.console.print("═" * 50)
+        self.console.print("\n[bold]Winner session(s) ready for review and merge:[/]")
+        for session in winner_sessions:
+            self.console.print(f"   • {session}")
+        self.console.print("\n[dim]Use the dashboard to review diffs and merge. Press 'q' to exit.[/]\n")
+
+        dashboard = SessionsDashboard(
+            backend=self._worktree_backend,
+            agent_backend=self._agent_backend,
+        )
+        dashboard.run()
 
     def _wait_for_mcp_completion(self, task_id: str) -> None:
         """Wait for all agents to signal completion via MCP.

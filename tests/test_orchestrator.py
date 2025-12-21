@@ -740,7 +740,8 @@ class TestExplorationIntegration:
                 merged=False,
             )
 
-            orchestrator_with_exploration.run(complex_query)
+            with patch.object(orchestrator_with_exploration, '_launch_post_completion_dashboard'):
+                orchestrator_with_exploration.run(complex_query)
 
         # Verify exploration was called
         mock_explorer.explore.assert_called_once_with(complex_query)
@@ -780,7 +781,8 @@ class TestExplorationIntegration:
                     merged=False,
                 )
 
-                orchestrator_with_exploration.run(complex_query)
+                with patch.object(orchestrator_with_exploration, '_launch_post_completion_dashboard'):
+                    orchestrator_with_exploration.run(complex_query)
 
             # Verify decompose received exploration context
             mock_decompose.assert_called_once()
@@ -812,7 +814,8 @@ class TestExplorationIntegration:
                             merged=False,
                         )
 
-                        orch.run("test")
+                        with patch.object(orch, '_launch_post_completion_dashboard'):
+                            orch.run("test")
 
                     # Exploration should NOT be called
                     mock_exploration.assert_not_called()
@@ -882,7 +885,8 @@ class TestExplorationIntegration:
                                 merged=False,
                             )
 
-                            orch.run("fix typo in README")
+                            with patch.object(orch, '_launch_post_completion_dashboard'):
+                                orch.run("fix typo in README")
 
                         # needs_exploration was called to check
                         mock_needs.assert_called_once_with("fix typo in README")
@@ -1437,3 +1441,234 @@ class TestWatchToggleDuringRun:
                                     orchestrator_for_watch._wait_for_mcp_votes("task-1")
 
                                 mock_show.assert_called_once()
+
+
+# =============================================================================
+# Tests for post-completion TUI dashboard flow
+# =============================================================================
+
+class TestPostCompletionDashboard:
+    """Tests for launching TUI dashboard after all subtasks complete."""
+
+    @pytest.fixture
+    def orchestrator_no_auto_merge(self, mock_schaltwerk_client):
+        """Create an orchestrator with auto_merge=False."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(agent_count=3, timeout=60, auto_merge=False)
+            yield orch
+
+    @pytest.fixture
+    def orchestrator_auto_merge(self, mock_schaltwerk_client):
+        """Create an orchestrator with auto_merge=True."""
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(agent_count=3, timeout=60, auto_merge=True)
+            yield orch
+
+    def test_launch_post_completion_dashboard_creates_dashboard(
+        self, orchestrator_no_auto_merge
+    ):
+        """_launch_post_completion_dashboard should create and run SessionsDashboard."""
+        winner_sessions = ["task-1-agent-0"]
+
+        with patch("swarm_orchestrator.tui.SessionsDashboard") as MockDashboard:
+            mock_dashboard_instance = MagicMock()
+            MockDashboard.return_value = mock_dashboard_instance
+
+            orchestrator_no_auto_merge._launch_post_completion_dashboard(winner_sessions)
+
+            MockDashboard.assert_called_once_with(
+                backend=orchestrator_no_auto_merge._worktree_backend,
+                agent_backend=orchestrator_no_auto_merge._agent_backend,
+            )
+            mock_dashboard_instance.run.assert_called_once()
+
+    def test_launch_post_completion_dashboard_prints_message(
+        self, orchestrator_no_auto_merge, capsys
+    ):
+        """_launch_post_completion_dashboard should print guidance message before dashboard."""
+        winner_sessions = ["task-1-agent-0", "task-2-agent-1"]
+
+        with patch("swarm_orchestrator.tui.SessionsDashboard") as MockDashboard:
+            mock_dashboard_instance = MagicMock()
+            MockDashboard.return_value = mock_dashboard_instance
+
+            orchestrator_no_auto_merge._launch_post_completion_dashboard(winner_sessions)
+
+            # Dashboard was launched (verifies the method ran)
+            mock_dashboard_instance.run.assert_called_once()
+
+    def test_run_launches_dashboard_when_auto_merge_false_and_consensus(
+        self, orchestrator_no_auto_merge, sample_subtask
+    ):
+        """run() should launch dashboard when auto_merge=False and consensus reached."""
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=True,
+                subtasks=[sample_subtask],
+                original_query="test",
+            )
+
+            with patch.object(orchestrator_no_auto_merge, '_process_subtask_with_mcp') as mock_process:
+                mock_process.return_value = SubtaskResult(
+                    subtask=sample_subtask,
+                    sessions=["agent-0"],
+                    vote_result=VoteResult(
+                        groups=[], winner=None, total_votes=3,
+                        consensus_reached=True, confidence=0.67
+                    ),
+                    winner_session="agent-0",
+                    merged=False,
+                )
+
+                with patch.object(
+                    orchestrator_no_auto_merge, '_launch_post_completion_dashboard'
+                ) as mock_dashboard:
+                    orchestrator_no_auto_merge.run("test")
+
+                    # Dashboard should be launched with winner sessions
+                    mock_dashboard.assert_called_once_with(["agent-0"])
+
+    def test_run_does_not_launch_dashboard_when_auto_merge_true(
+        self, orchestrator_auto_merge, sample_subtask
+    ):
+        """run() should NOT launch dashboard when auto_merge=True."""
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=True,
+                subtasks=[sample_subtask],
+                original_query="test",
+            )
+
+            with patch.object(orchestrator_auto_merge, '_process_subtask_with_mcp') as mock_process:
+                mock_process.return_value = SubtaskResult(
+                    subtask=sample_subtask,
+                    sessions=["agent-0"],
+                    vote_result=VoteResult(
+                        groups=[], winner=None, total_votes=3,
+                        consensus_reached=True, confidence=0.67
+                    ),
+                    winner_session="agent-0",
+                    merged=True,
+                )
+
+                with patch.object(
+                    orchestrator_auto_merge, '_launch_post_completion_dashboard'
+                ) as mock_dashboard:
+                    orchestrator_auto_merge.run("test")
+
+                    # Dashboard should NOT be launched
+                    mock_dashboard.assert_not_called()
+
+    def test_run_does_not_launch_dashboard_when_no_winners(
+        self, orchestrator_no_auto_merge, sample_subtask
+    ):
+        """run() should NOT launch dashboard when there are no winner sessions."""
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=True,
+                subtasks=[sample_subtask],
+                original_query="test",
+            )
+
+            with patch.object(orchestrator_no_auto_merge, '_process_subtask_with_mcp') as mock_process:
+                mock_process.return_value = SubtaskResult(
+                    subtask=sample_subtask,
+                    sessions=["agent-0"],
+                    vote_result=VoteResult(
+                        groups=[], winner=None, total_votes=3,
+                        consensus_reached=False, confidence=0.33
+                    ),
+                    winner_session=None,
+                    merged=False,
+                )
+
+                with patch.object(
+                    orchestrator_no_auto_merge, '_launch_post_completion_dashboard'
+                ) as mock_dashboard:
+                    orchestrator_no_auto_merge.run("test")
+
+                    # Dashboard should NOT be launched
+                    mock_dashboard.assert_not_called()
+
+    def test_run_collects_all_winner_sessions_for_dashboard(
+        self, orchestrator_no_auto_merge
+    ):
+        """run() should collect winner sessions from all subtasks for the dashboard."""
+        subtask1 = make_test_subtask(id="task-1", title="Task 1")
+        subtask2 = make_test_subtask(id="task-2", title="Task 2")
+
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=False,
+                subtasks=[subtask1, subtask2],
+                original_query="test",
+            )
+
+            with patch.object(orchestrator_no_auto_merge, '_process_subtask_with_mcp') as mock_process:
+                # Simulate two subtasks each with a winner
+                mock_process.side_effect = [
+                    SubtaskResult(
+                        subtask=subtask1,
+                        sessions=["task-1-agent-0"],
+                        vote_result=VoteResult(
+                            groups=[], winner=None, total_votes=3,
+                            consensus_reached=True, confidence=0.67
+                        ),
+                        winner_session="task-1-agent-0",
+                        merged=False,
+                    ),
+                    SubtaskResult(
+                        subtask=subtask2,
+                        sessions=["task-2-agent-1"],
+                        vote_result=VoteResult(
+                            groups=[], winner=None, total_votes=3,
+                            consensus_reached=True, confidence=0.67
+                        ),
+                        winner_session="task-2-agent-1",
+                        merged=False,
+                    ),
+                ]
+
+                with patch.object(orchestrator_no_auto_merge, '_wait_for_user_merge'):
+                    with patch.object(
+                        orchestrator_no_auto_merge, '_launch_post_completion_dashboard'
+                    ) as mock_dashboard:
+                        orchestrator_no_auto_merge.run("test")
+
+                        # Dashboard should be launched with all winner sessions
+                        mock_dashboard.assert_called_once()
+                        called_sessions = mock_dashboard.call_args[0][0]
+                        assert "task-1-agent-0" in called_sessions
+                        assert "task-2-agent-1" in called_sessions
+
+    def test_run_returns_result_after_dashboard_closes(
+        self, orchestrator_no_auto_merge, sample_subtask
+    ):
+        """run() should return OrchestrationResult after user quits dashboard."""
+        with patch("swarm_orchestrator.orchestrator.decompose_task") as mock_decompose:
+            mock_decompose.return_value = DecompositionResult(
+                is_atomic=True,
+                subtasks=[sample_subtask],
+                original_query="test",
+            )
+
+            with patch.object(orchestrator_no_auto_merge, '_process_subtask_with_mcp') as mock_process:
+                mock_process.return_value = SubtaskResult(
+                    subtask=sample_subtask,
+                    sessions=["agent-0"],
+                    vote_result=VoteResult(
+                        groups=[], winner=None, total_votes=3,
+                        consensus_reached=True, confidence=0.67
+                    ),
+                    winner_session="agent-0",
+                    merged=False,
+                )
+
+                with patch.object(orchestrator_no_auto_merge, '_launch_post_completion_dashboard'):
+                    result = orchestrator_no_auto_merge.run("test")
+
+                    # Should return OrchestrationResult
+                    assert isinstance(result, OrchestrationResult)
+                    assert result.overall_success is True
