@@ -346,6 +346,111 @@ class TestSessionsDashboard:
         # Help should still be visible (check for keys that appear early in the bar)
         assert "j/k" in output or "nav" in output
 
+    def test_diff_renders_correct_line_window(self, dashboard, mock_backend):
+        """Diff should render the correct window of lines based on scroll offset."""
+        # Create diff with 200 lines
+        lines = [f"line {i}" for i in range(200)]
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join(lines),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff view
+
+        # Scroll down to line 50
+        dashboard.diff_scroll_offset = 50
+        panel = dashboard._render_diff()
+
+        # Render to string
+        from rich.console import Console
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True, width=120, height=40)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Line 50 should be visible, line 0 should not be
+        assert "line 50" in output
+        assert "line 0" not in output
+
+    def test_diff_scroll_indicator_shows_position(self, dashboard, mock_backend):
+        """Scroll indicator should show current position and total in large diffs."""
+        lines = [f"line {i}" for i in range(200)]
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join(lines),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff view
+        dashboard.diff_scroll_offset = 50
+
+        panel = dashboard._render_diff()
+
+        # Title should indicate scroll position with format [start-end/total]
+        from rich.console import Console
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True, width=120, height=40)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Should show line range and total (51-150/200)
+        assert "51" in output
+        assert "200" in output  # Total lines
+
+    def test_full_diff_accessible_via_scrolling(self, dashboard, mock_backend):
+        """Full diff content should be accessible by scrolling."""
+        lines = [f"unique-line-{i}" for i in range(300)]
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join(lines),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff view
+
+        # Check first line is visible initially
+        panel = dashboard._render_diff()
+        from rich.console import Console
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True, width=120, height=40)
+        console.print(panel)
+        output = console.file.getvalue()
+        assert "unique-line-0" in output
+
+        # Scroll to end and check last line is accessible
+        dashboard.diff_scroll_offset = 250
+        panel = dashboard._render_diff()
+        console = Console(file=StringIO(), force_terminal=True, width=120, height=40)
+        console.print(panel)
+        output = console.file.getvalue()
+        assert "unique-line-299" in output
+
+    def test_diff_scroll_beyond_2000_chars(self, dashboard, mock_backend):
+        """Diff content beyond 2000 chars should be viewable via scrolling."""
+        # Create content with more than 2000 chars
+        # Each line is ~15 chars, so 200 lines = ~3000 chars
+        lines = [f"longline-{i:05d}" for i in range(200)]
+        content = "\n".join(lines)
+        assert len(content) > 2000, "Test content should exceed 2000 chars"
+
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content=content,
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")
+
+        # Scroll to later content (beyond what 2000 chars would show)
+        dashboard.diff_scroll_offset = 150
+        panel = dashboard._render_diff()
+
+        from rich.console import Console
+        from io import StringIO
+        console = Console(file=StringIO(), force_terminal=True, width=120, height=40)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Line 199 should be visible when scrolled
+        assert "longline-00199" in output
+
 
 class TestWatchCommand:
     """Tests for the 'swarm watch' CLI command."""

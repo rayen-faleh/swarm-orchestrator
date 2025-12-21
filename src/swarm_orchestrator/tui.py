@@ -259,16 +259,20 @@ class SessionsDashboard:
             return Panel(Text("No diff available", style="dim"), title="Diff")
 
         lines = self.current_diff.content.split("\n")
+        total_lines = len(lines)
+
         # Apply scroll offset and take visible lines
         visible_lines = lines[self.diff_scroll_offset:]
-        content = "\n".join(visible_lines[:100])  # Limit visible lines
+        visible_count = min(100, len(visible_lines))
+        content = "\n".join(visible_lines[:visible_count])
 
-        if len(visible_lines) > 100:
-            content += "\n... (more below)"
-
+        # Build title with file count and scroll position
         title = f"Diff ({len(self.current_diff.files)} files)"
-        if self.diff_scroll_offset > 0:
-            title += f" [line {self.diff_scroll_offset + 1}]"
+
+        # Show scroll indicator when content exceeds visible area or scrolled
+        if total_lines > visible_count or self.diff_scroll_offset > 0:
+            end_line = min(self.diff_scroll_offset + visible_count, total_lines)
+            title += f" [{self.diff_scroll_offset + 1}-{end_line}/{total_lines}]"
 
         try:
             syntax = Syntax(content, "diff", theme="monokai", line_numbers=True, start_line=self.diff_scroll_offset + 1)
