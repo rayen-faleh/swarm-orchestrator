@@ -339,7 +339,7 @@ class SessionsDashboard:
         keys = [
             ("j/k", "nav"),
             ("d", "diff"),
-            ("PgUp/PgDn", "scroll"),
+            ("scroll", "↕"),
             ("m", "merge"),
             ("x", "del"),
             ("r", "refresh"),

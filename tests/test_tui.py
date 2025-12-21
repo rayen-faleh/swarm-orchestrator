@@ -400,7 +400,6 @@ class TestSessionsDashboard:
         assert "nav" in output
         assert "d" in output
         assert "diff" in output
-        assert "PgUp/PgDn" in output
         assert "scroll" in output
         assert "m" in output
         assert "merge" in output
@@ -607,7 +606,7 @@ class TestSessionsDashboard:
         assert "j/k" in output or "nav" in output
 
     def test_footer_shows_scroll_hints(self, dashboard):
-        """Footer should include PgUp/PgDn scroll hints."""
+        """Footer should include mouse scroll hints."""
         from rich.console import Console
         from io import StringIO
 
@@ -618,8 +617,7 @@ class TestSessionsDashboard:
         console.print(help_panel)
         output = console.file.getvalue()
 
-        # Should have PgUp/PgDn hints (indicating scroll navigation)
-        assert "PgUp/PgDn" in output
+        # Should have scroll hints (indicating mouse wheel navigation)
         assert "scroll" in output
 
 
