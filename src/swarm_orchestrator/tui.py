@@ -56,7 +56,7 @@ class SessionsDashboard:
 
     def refresh_sessions(self) -> None:
         """Refresh the session list from the backend."""
-        self.sessions = self.backend.list_sessions("all")
+        self.sessions = self.backend.list_sessions("active")
         if self.selected_index >= len(self.sessions):
             self.selected_index = max(0, len(self.sessions) - 1)
         if self.show_diff and self.sessions:
@@ -262,7 +262,6 @@ class SessionsDashboard:
             status_style = {
                 "running": "yellow",
                 "reviewed": "green",
-                "spec": "dim",
             }.get(session.status, "white")
 
             table.add_row(

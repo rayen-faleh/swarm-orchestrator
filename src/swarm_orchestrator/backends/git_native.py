@@ -130,7 +130,7 @@ class GitNativeWorktreeBackend(WorktreeBackend):
         sessions = []
 
         for record in records:
-            if filter_type == "active" and record.status != "running":
+            if filter_type == "active" and record.status == "spec":
                 continue
             if filter_type == "reviewed" and record.status != "reviewed":
                 continue

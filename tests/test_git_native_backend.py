@@ -130,19 +130,26 @@ class TestGitNativeWorktreeBackend:
         assert "list-b" in names
 
     def test_list_sessions_filter_active(self, backend, store):
-        """list_sessions with filter='active' returns only running sessions."""
-        backend.create_session("active-test", "content")
-        # Manually mark one as reviewed via store
+        """list_sessions with filter='active' returns running and reviewed, excludes specs."""
+        backend.create_session("running-test", "content")
+        # Manually add a reviewed session via store
         store.save(SessionRecord(
             name="reviewed-test",
             status="reviewed",
             branch="git-native/reviewed-test",
         ))
+        # Manually add a spec session via store
+        store.save(SessionRecord(
+            name="spec-test",
+            status="spec",
+            branch="git-native/spec-test",
+        ))
 
         sessions = backend.list_sessions(filter_type="active")
         names = {s.name for s in sessions}
-        assert "active-test" in names
-        assert "reviewed-test" not in names
+        assert "running-test" in names
+        assert "reviewed-test" in names
+        assert "spec-test" not in names
 
     def test_get_diff_returns_changes(self, backend, temp_repo):
         """get_diff returns the diff against parent branch."""

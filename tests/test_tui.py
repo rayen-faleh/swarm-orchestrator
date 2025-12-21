@@ -17,12 +17,15 @@ class TestSessionsDashboard:
 
     @pytest.fixture
     def mock_backend(self):
-        """Create a mock worktree backend."""
+        """Create a mock worktree backend.
+
+        Returns only active sessions (running/reviewed), not specs.
+        This simulates the 'active' filter used by refresh_sessions().
+        """
         backend = MagicMock()
         backend.list_sessions.return_value = [
             SessionInfo(name="task-agent-0", status="running", branch="git-native/task-agent-0"),
             SessionInfo(name="task-agent-1", status="reviewed", branch="git-native/task-agent-1"),
-            SessionInfo(name="task-agent-2", status="spec", branch="git-native/task-agent-2"),
         ]
         backend.get_diff.return_value = DiffResult(
             files=["src/foo.py"],
@@ -45,7 +48,14 @@ class TestSessionsDashboard:
         """refresh_sessions should fetch sessions from backend."""
         dashboard.refresh_sessions()
         mock_backend.list_sessions.assert_called()
-        assert len(dashboard.sessions) == 3
+        assert len(dashboard.sessions) == 2
+
+    def test_refresh_sessions_excludes_specs(self, mock_backend):
+        """refresh_sessions should use 'active' filter to exclude spec-only sessions."""
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        # Should call list_sessions with 'active' to exclude specs
+        mock_backend.list_sessions.assert_called_with("active")
 
     def test_render_returns_renderable(self, dashboard):
         """render should return a Rich renderable object."""
@@ -68,15 +78,11 @@ class TestSessionsDashboard:
         assert dashboard.selected_index == 0
         dashboard.handle_input("j")
         assert dashboard.selected_index == 1
-        dashboard.handle_input("j")
-        assert dashboard.selected_index == 2
 
     def test_move_selection_up(self, dashboard):
         """'k' key should move selection up."""
         dashboard.refresh_sessions()
-        dashboard.selected_index = 2
-        dashboard.handle_input("k")
-        assert dashboard.selected_index == 1
+        dashboard.selected_index = 1
         dashboard.handle_input("k")
         assert dashboard.selected_index == 0
 
@@ -86,9 +92,9 @@ class TestSessionsDashboard:
         # At top, going up wraps to bottom
         dashboard.selected_index = 0
         dashboard.handle_input("k")
-        assert dashboard.selected_index == 2
+        assert dashboard.selected_index == 1
         # At bottom, going down wraps to top
-        dashboard.selected_index = 2
+        dashboard.selected_index = 1
         dashboard.handle_input("j")
         assert dashboard.selected_index == 0
 
@@ -230,7 +236,7 @@ class TestSessionsDashboard:
         dashboard.refresh_sessions()
         assert dashboard.sessions_scroll_offset == 0
         dashboard.handle_input("L")
-        assert dashboard.sessions_scroll_offset == 2  # Clamped to max (3 sessions - 1)
+        assert dashboard.sessions_scroll_offset == 1  # Clamped to max (2 sessions - 1)
 
     def test_scroll_sessions_up(self, dashboard):
         """'H' key should scroll sessions list up."""
@@ -250,8 +256,8 @@ class TestSessionsDashboard:
         dashboard.refresh_sessions()
         for _ in range(10):
             dashboard.handle_input("L")
-        # Should be clamped to max (3 sessions - 1 = 2)
-        assert dashboard.sessions_scroll_offset == 2
+        # Should be clamped to max (2 sessions - 1 = 1)
+        assert dashboard.sessions_scroll_offset == 1
 
     def test_sessions_table_shows_row_count_indicator(self, mock_backend):
         """Sessions table should show row count indicator for long lists."""
