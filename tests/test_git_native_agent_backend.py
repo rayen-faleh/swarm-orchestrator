@@ -423,10 +423,86 @@ class TestGitNativeAgentBackendStopAgent:
         ))
 
         with patch("os.kill") as mock_kill:
-            result = backend.stop_agent("test-session")
+            with patch("subprocess.run"):  # Mock AppleScript call
+                result = backend.stop_agent("test-session")
 
         assert result is True
         mock_kill.assert_called_once()
+
+    def test_stop_agent_closes_terminal_window(self, backend, store, tmp_path):
+        """stop_agent runs AppleScript to close Terminal window."""
+        worktree_path = tmp_path / "test-session"
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            worktree_path=str(worktree_path),
+            pid=12345,
+        ))
+
+        with patch("os.kill"):
+            with patch.object(subprocess, "run") as mock_run:
+                backend.stop_agent("test-session")
+
+        # Verify osascript was called with Terminal close command
+        osascript_calls = [
+            call for call in mock_run.call_args_list
+            if call[0][0][0] == "osascript"
+        ]
+        assert len(osascript_calls) >= 1
+
+        # Check the AppleScript contains Terminal and close logic
+        applescript = osascript_calls[0][0][0][2]  # -e argument
+        assert "Terminal" in applescript
+        assert "close" in applescript.lower()
+
+    def test_stop_agent_handles_applescript_error_gracefully(self, backend, store, tmp_path):
+        """stop_agent handles AppleScript errors without crashing."""
+        worktree_path = tmp_path / "test-session"
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            worktree_path=str(worktree_path),
+            pid=12345,
+        ))
+
+        def raise_on_osascript(cmd, **kwargs):
+            if cmd[0] == "osascript":
+                raise Exception("AppleScript error")
+            return MagicMock()
+
+        with patch("os.kill"):
+            with patch.object(subprocess, "run", side_effect=raise_on_osascript):
+                # Should not raise, should handle gracefully
+                result = backend.stop_agent("test-session")
+
+        # Should still return True because process termination succeeded
+        assert result is True
+
+    def test_stop_agent_closes_window_even_without_pid(self, backend, store, tmp_path):
+        """stop_agent closes Terminal window even when no PID stored."""
+        worktree_path = tmp_path / "test-session"
+        store.save(SessionRecord(
+            name="test-session",
+            status="running",
+            branch="git-native/test-session",
+            worktree_path=str(worktree_path),
+            pid=None,  # No PID stored
+        ))
+
+        with patch.object(subprocess, "run") as mock_run:
+            result = backend.stop_agent("test-session")
+
+        # AppleScript should still be called to close window
+        osascript_calls = [
+            call for call in mock_run.call_args_list
+            if call[0][0][0] == "osascript"
+        ]
+        assert len(osascript_calls) >= 1
+
+        # Returns True because Terminal window close was attempted
+        assert result is True
 
 
 class TestGitNativeAgentBackendPIDTracking:

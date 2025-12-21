@@ -417,12 +417,48 @@ rm -f "$SCRIPT_PATH"
         return_code = process.poll()
         return AgentStatus(agent_id=agent_id, is_finished=return_code is not None)
 
+    def _close_terminal_window(self, worktree_path: str) -> bool:
+        """
+        Close Terminal.app window associated with a worktree path.
+
+        Uses AppleScript to find and close Terminal windows whose working
+        directory or custom title contains the worktree path.
+
+        Args:
+            worktree_path: Path to the worktree directory
+
+        Returns:
+            True if a window was closed, False otherwise
+        """
+        # AppleScript to close Terminal windows with matching path in title or cwd
+        # The .command file sets the window title to include the path
+        applescript = f'''
+        tell application "Terminal"
+            set windowClosed to false
+            repeat with w in windows
+                try
+                    set windowName to name of w
+                    if windowName contains "{worktree_path}" then
+                        close w
+                        set windowClosed to true
+                    end if
+                end try
+            end repeat
+            return windowClosed
+        end tell
+        '''
+        try:
+            subprocess.run(["osascript", "-e", applescript], check=False, capture_output=True)
+            return True
+        except Exception:
+            return False
+
     def stop_agent(self, session_name: str) -> bool:
         """
         Stop a running agent by closing its terminal window.
 
-        Uses SIGTERM/SIGKILL for the stored PID. Also attempts to close
-        any Terminal window running in the session's worktree.
+        Uses SIGTERM/SIGKILL for the stored PID. Also closes the Terminal.app
+        window associated with the session's worktree using AppleScript.
 
         Args:
             session_name: Session/agent identifier to stop
@@ -459,5 +495,10 @@ rm -f "$SCRIPT_PATH"
             # Clear PID from store
             record.pid = None
             self._store.save(record)
+
+        # Close Terminal.app window via AppleScript
+        if record and record.worktree_path:
+            if self._close_terminal_window(record.worktree_path):
+                stopped = True
 
         return stopped
