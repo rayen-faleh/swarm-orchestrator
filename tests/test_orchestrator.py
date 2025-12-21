@@ -612,6 +612,78 @@ class TestCursorCLIIntegration:
                 assert results["agent-0"].is_finished is True
 
 
+class TestExplorationModelConfig:
+    """Tests for exploration model configuration flow from config to ExplorationExecutor."""
+
+    def test_explore_passes_model_from_config(self, mock_schaltwerk_client):
+        """_explore should pass exploration_model from config to ExplorationExecutor."""
+        from swarm_orchestrator.decomposer import ExplorationResult
+
+        config = SwarmConfig(exploration_model="claude-haiku-3-5")
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(config=config)
+
+            with patch("swarm_orchestrator.orchestrator.needs_exploration", return_value=True):
+                with patch("swarm_orchestrator.orchestrator.ExplorationExecutor") as mock_executor_class:
+                    mock_executor = MagicMock()
+                    mock_executor.explore.return_value = ExplorationResult()
+                    mock_executor_class.return_value = mock_executor
+
+                    orch._explore("Implement authentication")
+
+                    # Verify ExplorationExecutor was instantiated with model parameter
+                    mock_executor_class.assert_called_once()
+                    call_kwargs = mock_executor_class.call_args.kwargs
+                    assert call_kwargs.get("model") == "claude-haiku-3-5"
+
+    def test_explore_passes_custom_exploration_model(self, mock_schaltwerk_client):
+        """_explore should pass custom exploration model from config."""
+        from swarm_orchestrator.decomposer import ExplorationResult
+
+        config = SwarmConfig(exploration_model="claude-3-sonnet")
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(config=config)
+
+            with patch("swarm_orchestrator.orchestrator.needs_exploration", return_value=True):
+                with patch("swarm_orchestrator.orchestrator.ExplorationExecutor") as mock_executor_class:
+                    mock_executor = MagicMock()
+                    mock_executor.explore.return_value = ExplorationResult()
+                    mock_executor_class.return_value = mock_executor
+
+                    orch._explore("Build API endpoint")
+
+                    call_kwargs = mock_executor_class.call_args.kwargs
+                    assert call_kwargs.get("model") == "claude-3-sonnet"
+
+    def test_explore_end_to_end_model_flow(self, mock_schaltwerk_client):
+        """End-to-end test: exploration_model flows from config through orchestrator to executor."""
+        config = SwarmConfig(exploration_model="claude-haiku-3-5")
+
+        with patch("swarm_orchestrator.orchestrator.get_client") as mock_get_client:
+            mock_get_client.return_value = mock_schaltwerk_client
+            orch = Orchestrator(config=config)
+
+            with patch("swarm_orchestrator.orchestrator.needs_exploration", return_value=True):
+                with patch("swarm_orchestrator.exploration.subprocess.run") as mock_subprocess:
+                    mock_subprocess.return_value = MagicMock(
+                        returncode=0,
+                        stdout='{"needs_exploration": true, "code_insights": [], "web_findings": [], "context_summary": "Test"}',
+                        stderr="",
+                    )
+
+                    orch._explore("Add caching layer")
+
+                    # Verify subprocess was called with --model flag
+                    call_args = mock_subprocess.call_args
+                    cmd = call_args[0][0]
+                    assert "--model" in cmd
+                    assert "claude-haiku-3-5" in cmd
+
+
 class TestExplorationIntegration:
     """Tests for exploration integration in the orchestration flow."""
 

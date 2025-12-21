@@ -676,7 +676,7 @@ class Orchestrator:
             return None
 
         self.console.print("[bold]🔬 Exploring codebase...[/]")
-        executor = ExplorationExecutor(timeout=self.timeout)
+        executor = ExplorationExecutor(timeout=self.timeout, model=self.config.exploration_model)
         result = executor.explore(query)
 
         if result.context_summary:
