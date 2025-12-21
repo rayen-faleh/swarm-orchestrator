@@ -363,7 +363,7 @@ This is an atomic task.""",
 
         decomposer = Decomposer()
 
-        with pytest.raises(DecomposerError, match="Claude CLI failed"):
+        with pytest.raises(DecomposerError, match="claude CLI failed"):
             decomposer.decompose("Some task")
 
     def test_raises_on_cli_not_found(self, mock_subprocess):
@@ -372,8 +372,61 @@ This is an atomic task.""",
 
         decomposer = Decomposer()
 
-        with pytest.raises(DecomposerError, match="Claude CLI not found"):
+        with pytest.raises(DecomposerError, match="CLI not found"):
             decomposer.decompose("Some task")
+
+    def test_default_cli_tool(self):
+        """Should default to 'claude' cli_tool."""
+        decomposer = Decomposer()
+        assert decomposer.cli_tool == "claude"
+
+    def test_custom_cli_tool(self):
+        """Should accept custom cli_tool."""
+        decomposer = Decomposer(cli_tool="opencode")
+        assert decomposer.cli_tool == "opencode"
+
+    def test_uses_opencode_cli(self, mock_subprocess):
+        """Should use 'opencode' command when cli_tool='opencode'."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [{"id": "t", "description": "d", "prompt": "p"}]}',
+            stderr="",
+        )
+
+        decomposer = Decomposer(cli_tool="opencode")
+        decomposer.decompose("Test task")
+
+        mock_subprocess.assert_called_once()
+        call_args = mock_subprocess.call_args
+        assert call_args[0][0][0] == "opencode"
+        assert "-p" in call_args[0][0]
+
+    def test_opencode_does_not_use_output_format(self, mock_subprocess):
+        """opencode CLI should not use --output-format flag."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [{"id": "t", "description": "d", "prompt": "p"}]}',
+            stderr="",
+        )
+
+        decomposer = Decomposer(cli_tool="opencode")
+        decomposer.decompose("Test task")
+
+        call_args = mock_subprocess.call_args
+        assert "--output-format" not in call_args[0][0]
+
+    def test_error_message_uses_cli_tool_name(self, mock_subprocess):
+        """Error messages should use the configured cli_tool name."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Some error",
+        )
+
+        decomposer = Decomposer(cli_tool="opencode")
+
+        with pytest.raises(DecomposerError, match="opencode"):
+            decomposer.decompose("Test task")
 
 
 class TestDecomposeTaskFunction:
@@ -394,6 +447,23 @@ class TestDecomposeTaskFunction:
 
         mock_instance.decompose.assert_called_once_with("My query", exploration_result=None)
         assert result.is_atomic is True
+
+    @patch("swarm_orchestrator.decomposer.Decomposer")
+    def test_passes_cli_tool_parameter(self, mock_decomposer_class):
+        """Should pass cli_tool parameter to Decomposer."""
+        mock_instance = MagicMock()
+        mock_decomposer_class.return_value = mock_instance
+        mock_instance.decompose.return_value = DecompositionResult(
+            is_atomic=True,
+            subtasks=[make_subtask(id="t", description="d")],
+            original_query="query",
+        )
+
+        decompose_task("My query", cli_tool="opencode")
+
+        mock_decomposer_class.assert_called_once_with(
+            use_api=False, timeout=120, cli_tool="opencode"
+        )
 
 
 class TestValidateDecomposition:

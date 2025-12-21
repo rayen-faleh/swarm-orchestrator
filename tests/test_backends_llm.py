@@ -34,6 +34,16 @@ class TestClaudeCLIBackend:
         backend = ClaudeCLIBackend(timeout=60)
         assert backend.timeout == 60
 
+    def test_default_cli_tool(self):
+        """Default cli_tool is 'claude'."""
+        backend = ClaudeCLIBackend()
+        assert backend.cli_tool == "claude"
+
+    def test_custom_cli_tool(self):
+        """Custom cli_tool can be specified."""
+        backend = ClaudeCLIBackend(cli_tool="opencode")
+        assert backend.cli_tool == "opencode"
+
     @patch("swarm_orchestrator.backends.llm.subprocess.run")
     def test_decompose_calls_claude_cli(self, mock_run):
         """decompose() calls claude CLI with correct arguments."""
@@ -96,7 +106,7 @@ class TestClaudeCLIBackend:
         with pytest.raises(LLMBackendError) as exc_info:
             backend.decompose("test")
 
-        assert "Claude CLI not found" in str(exc_info.value)
+        assert "CLI not found" in str(exc_info.value)
 
     @patch("swarm_orchestrator.backends.llm.subprocess.run")
     def test_decompose_raises_on_timeout(self, mock_run):
@@ -148,7 +158,54 @@ class TestClaudeCLIBackend:
         with pytest.raises(LLMBackendError) as exc_info:
             backend.explore("test")
 
-        assert "Claude CLI not found" in str(exc_info.value)
+        assert "CLI not found" in str(exc_info.value)
+
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_decompose_with_opencode_cli(self, mock_run):
+        """decompose() uses 'opencode' command when cli_tool='opencode'."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [], "reasoning": "Simple"}',
+            stderr="",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="opencode")
+        backend.decompose("Add a button")
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        assert call_args[0][0][0] == "opencode"
+        assert "-p" in call_args[0][0]
+
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_opencode_does_not_use_output_format(self, mock_run):
+        """opencode CLI does not use --output-format flag."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"is_atomic": true, "subtasks": [], "reasoning": "Simple"}',
+            stderr="",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="opencode")
+        backend.decompose("Add a button")
+
+        call_args = mock_run.call_args
+        assert "--output-format" not in call_args[0][0]
+
+    @patch("swarm_orchestrator.backends.llm.subprocess.run")
+    def test_error_message_uses_cli_tool_name(self, mock_run):
+        """Error messages use the configured cli_tool name."""
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Something went wrong",
+        )
+
+        backend = ClaudeCLIBackend(cli_tool="opencode")
+        with pytest.raises(LLMBackendError) as exc_info:
+            backend.decompose("test")
+
+        assert "opencode" in str(exc_info.value)
 
 
 class TestAnthropicAPIBackend:

@@ -19,20 +19,22 @@ class LLMBackendError(Exception):
 
 class ClaudeCLIBackend(LLMBackend):
     """
-    LLM backend using Claude CLI.
+    LLM backend using CLI tools (claude or opencode).
 
     Uses your existing Claude Code authentication (Max/Pro subscription).
     No API key needed.
     """
 
-    def __init__(self, timeout: int = 120):
+    def __init__(self, timeout: int = 120, cli_tool: str = "claude"):
         """
         Initialize the CLI backend.
 
         Args:
             timeout: Timeout in seconds for CLI calls (default: 120)
+            cli_tool: CLI tool to use ("claude" or "opencode")
         """
         self.timeout = timeout
+        self.cli_tool = cli_tool
 
     def decompose(self, query: str, context: str | None = None) -> DecomposeResult:
         prompt = self._build_prompt(query, context)
@@ -48,23 +50,31 @@ class ClaudeCLIBackend(LLMBackend):
             prompt = f"{query}\n\nContext:\n{context}"
         return prompt
 
+    def _build_command(self, prompt: str) -> list[str]:
+        """Build CLI command based on configured tool."""
+        if self.cli_tool == "opencode":
+            return ["opencode", "-p", prompt]
+        # Default to claude
+        return ["claude", "-p", prompt, "--output-format", "text"]
+
     def _call_cli(self, prompt: str) -> str:
+        cmd = self._build_command(prompt)
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt, "--output-format", "text"],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
             )
             if result.returncode != 0:
-                raise LLMBackendError(f"Claude CLI failed: {result.stderr or 'Unknown error'}")
+                raise LLMBackendError(f"{self.cli_tool} CLI failed: {result.stderr or 'Unknown error'}")
             return result.stdout
         except FileNotFoundError:
             raise LLMBackendError(
-                "Claude CLI not found. Install Claude Code: https://claude.ai/download"
+                f"{self.cli_tool} CLI not found. Install the required CLI tool."
             )
         except subprocess.TimeoutExpired:
-            raise LLMBackendError(f"Claude CLI timed out after {self.timeout} seconds")
+            raise LLMBackendError(f"{self.cli_tool} CLI timed out after {self.timeout} seconds")
 
     def _parse_decompose_response(self, text: str) -> DecomposeResult:
         json_match = re.search(r"\{[\s\S]*\}", text)

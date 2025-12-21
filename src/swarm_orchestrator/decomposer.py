@@ -429,19 +429,21 @@ class Decomposer:
     No separate API key needed!
     """
 
-    def __init__(self, use_api: bool = False, model: Optional[str] = None, timeout: int = 120):
+    def __init__(self, use_api: bool = False, model: Optional[str] = None, timeout: int = 120, cli_tool: str = "claude"):
         """
         Initialize the decomposer.
 
         Args:
             use_api: If True, use Anthropic API directly (requires ANTHROPIC_API_KEY).
-                     If False (default), use claude CLI (uses your login).
+                     If False (default), use CLI (uses your login).
             model: Model to use (only applies when use_api=True)
-            timeout: Timeout in seconds for Claude CLI calls (default: 120)
+            timeout: Timeout in seconds for CLI calls (default: 120)
+            cli_tool: CLI tool to use for decomposition ("claude" or "opencode")
         """
         self.use_api = use_api
         self.model = model or "claude-sonnet-4-20250514"
         self.timeout = timeout
+        self.cli_tool = cli_tool
         self._api_client = None
 
     def _get_api_client(self):
@@ -493,15 +495,23 @@ class Decomposer:
 
         return "\n".join(sections)
 
+    def _build_command(self, prompt: str) -> list[str]:
+        """Build CLI command based on configured tool."""
+        if self.cli_tool == "opencode":
+            return ["opencode", "-p", prompt]
+        # Default to claude
+        return ["claude", "-p", prompt, "--output-format", "text"]
+
     def _call_cli(self, prompt: str) -> str:
         """
-        Call Claude via the CLI.
+        Call the CLI tool for decomposition.
 
-        Uses your existing Claude Code authentication (Max/Pro subscription).
+        Uses your existing CLI tool authentication (Max/Pro subscription).
         """
+        cmd = self._build_command(prompt)
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt, "--output-format", "text"],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -509,17 +519,16 @@ class Decomposer:
 
             if result.returncode != 0:
                 error_msg = result.stderr or "Unknown error"
-                raise DecomposerError(f"Claude CLI failed: {error_msg}")
+                raise DecomposerError(f"{self.cli_tool} CLI failed: {error_msg}")
 
             return result.stdout
 
         except FileNotFoundError:
             raise DecomposerError(
-                "Claude CLI not found. Please install Claude Code: "
-                "https://claude.ai/download"
+                f"{self.cli_tool} CLI not found. Please install the required CLI tool."
             )
         except subprocess.TimeoutExpired:
-            raise DecomposerError(f"Claude CLI timed out after {self.timeout} seconds")
+            raise DecomposerError(f"{self.cli_tool} CLI timed out after {self.timeout} seconds")
 
     def _call_api(self, prompt: str) -> str:
         """Call Claude via the Anthropic API (requires API key)."""
@@ -603,6 +612,7 @@ def decompose_task(
     use_api: bool = False,
     timeout: int = 120,
     exploration_result: Optional[ExplorationResult] = None,
+    cli_tool: str = "claude",
 ) -> DecompositionResult:
     """
     Convenience function to decompose a task.
@@ -610,11 +620,12 @@ def decompose_task(
     Args:
         query: The task to decompose
         use_api: If True, use Anthropic API (requires ANTHROPIC_API_KEY).
-                 If False (default), use claude CLI (uses your login).
-        timeout: Timeout in seconds for Claude CLI calls (default: 120)
+                 If False (default), use CLI (uses your login).
+        timeout: Timeout in seconds for CLI calls (default: 120)
         exploration_result: Optional exploration findings to provide context
+        cli_tool: CLI tool to use for decomposition ("claude" or "opencode")
     """
-    decomposer = Decomposer(use_api=use_api, timeout=timeout)
+    decomposer = Decomposer(use_api=use_api, timeout=timeout, cli_tool=cli_tool)
     return decomposer.decompose(query, exploration_result=exploration_result)
 
 
