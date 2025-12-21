@@ -17,6 +17,7 @@ from .tools import (
     CastVoteTool,
     GetVoteResultsTool,
 )
+from ..config import SwarmConfig, load_config
 
 
 class SwarmMCPServer:
@@ -30,14 +31,22 @@ class SwarmMCPServer:
     - get_vote_results: Get voting results
     """
 
-    def __init__(self, persistence_path: Optional[str] = None):
+    def __init__(
+        self,
+        persistence_path: Optional[str] = None,
+        compression_config: Optional[SwarmConfig] = None,
+    ):
         """
         Initialize the MCP server.
 
         Args:
             persistence_path: Optional path to persist state across restarts.
+            compression_config: Optional SwarmConfig with compression settings.
         """
-        self.state = SwarmState(persistence_path=persistence_path)
+        self.state = SwarmState(
+            persistence_path=persistence_path,
+            compression_config=compression_config,
+        )
         self._tools = self._create_tools()
 
     def _create_tools(self) -> dict:
@@ -215,9 +224,18 @@ def main():
         help="Path to state persistence file",
         default=None,
     )
+    parser.add_argument(
+        "--config",
+        help="Path to config file (default: .swarm/config.json)",
+        default=None,
+    )
     args = parser.parse_args()
 
-    server = SwarmMCPServer(persistence_path=args.state_file)
+    config = load_config(args.config)
+    server = SwarmMCPServer(
+        persistence_path=args.state_file,
+        compression_config=config,
+    )
     server.run_stdio()
 
 

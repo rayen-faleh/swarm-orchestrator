@@ -793,3 +793,77 @@ class TestCompressionInGetAllImplementations:
 
         assert result["success"] is True
         assert len(result["implementations"]) == 1
+
+
+# =============================================================================
+# SwarmMCPServer Compression Config Tests
+# =============================================================================
+
+class TestSwarmMCPServerCompressionConfig:
+    """Tests for SwarmMCPServer accepting compression_config."""
+
+    def test_server_accepts_compression_config(self):
+        """SwarmMCPServer should accept compression_config parameter."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        config = SwarmConfig(
+            enable_diff_compression=True,
+            compression_min_tokens=100,
+            compression_target_ratio=0.5,
+        )
+        server = SwarmMCPServer(compression_config=config)
+
+        # Verify config is passed to state
+        assert server.state._compression_config is config
+
+    def test_server_works_without_compression_config(self):
+        """SwarmMCPServer should work without compression_config."""
+        server = SwarmMCPServer()
+
+        # Should work and state should have no compression config
+        assert server.state._compression_config is None
+
+    def test_server_with_persistence_and_compression(self):
+        """SwarmMCPServer should accept both persistence_path and compression_config."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            config = SwarmConfig(enable_diff_compression=True)
+
+            server = SwarmMCPServer(
+                persistence_path=str(state_file),
+                compression_config=config,
+            )
+
+            assert server.state.persistence_path == str(state_file)
+            assert server.state._compression_config is config
+
+    def test_server_compression_integration(self):
+        """SwarmMCPServer should use compression when configured."""
+        from swarm_orchestrator.config import SwarmConfig
+
+        config = SwarmConfig(
+            enable_diff_compression=True,
+            compression_min_tokens=10,  # Very low threshold
+            compression_target_ratio=0.5,
+        )
+        server = SwarmMCPServer(compression_config=config)
+        server.create_task("task-1", agent_count=1, session_prefix="task-1")
+
+        # Create a diff that exceeds threshold
+        large_diff = "diff --git a/foo.py b/foo.py\n" + "\n".join([
+            f"+# verbose line number {i} with extra content here" for i in range(50)
+        ])
+        server.call_tool("finished_work", {
+            "task_id": "task-1",
+            "agent_id": "task-1-agent-0",
+            "implementation": large_diff,
+        })
+
+        result = server.call_tool("get_all_implementations", {"task_id": "task-1"})
+
+        assert result["success"] is True
+        impl = result["implementations"][0]
+        # Compression stats should be present for large diff
+        assert "compression" in impl
