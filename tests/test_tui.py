@@ -171,6 +171,117 @@ class TestSessionsDashboard:
         dashboard.refresh_sessions()
         assert dashboard.get_selected_session() is None
 
+    def test_scroll_state_initialization(self, dashboard):
+        """Scroll offsets should initialize to zero."""
+        assert dashboard.diff_scroll_offset == 0
+        assert dashboard.sessions_scroll_offset == 0
+
+    def test_scroll_diff_down(self, dashboard, mock_backend):
+        """'l' key should scroll diff down."""
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join([f"line {i}" for i in range(50)]),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff view
+        assert dashboard.diff_scroll_offset == 0
+        dashboard.handle_input("l")
+        assert dashboard.diff_scroll_offset == 10
+
+    def test_scroll_diff_up(self, dashboard, mock_backend):
+        """'h' key should scroll diff up."""
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join([f"line {i}" for i in range(50)]),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff view
+        dashboard.diff_scroll_offset = 20
+        dashboard.handle_input("h")
+        assert dashboard.diff_scroll_offset == 10
+
+    def test_scroll_diff_clamps_to_zero(self, dashboard, mock_backend):
+        """Scroll offset should not go below zero."""
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="line 1\nline 2\nline 3",
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")
+        dashboard.handle_input("h")  # Try to scroll up from 0
+        assert dashboard.diff_scroll_offset == 0
+
+    def test_scroll_diff_clamps_to_max(self, dashboard, mock_backend):
+        """Scroll offset should not exceed content length."""
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="line 1\nline 2\nline 3",
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")
+        # Scroll down many times
+        for _ in range(10):
+            dashboard.handle_input("l")
+        # Should be clamped to max (3 lines - 1 = 2)
+        assert dashboard.diff_scroll_offset == 2
+
+    def test_scroll_sessions_down(self, dashboard):
+        """'L' key should scroll sessions list down."""
+        dashboard.refresh_sessions()
+        assert dashboard.sessions_scroll_offset == 0
+        dashboard.handle_input("L")
+        assert dashboard.sessions_scroll_offset == 2  # Clamped to max (3 sessions - 1)
+
+    def test_scroll_sessions_up(self, dashboard):
+        """'H' key should scroll sessions list up."""
+        dashboard.refresh_sessions()
+        dashboard.sessions_scroll_offset = 2
+        dashboard.handle_input("H")
+        assert dashboard.sessions_scroll_offset == 0  # 2 - 5 clamped to 0
+
+    def test_scroll_sessions_clamps_to_zero(self, dashboard):
+        """Sessions scroll should not go below zero."""
+        dashboard.refresh_sessions()
+        dashboard.handle_input("H")
+        assert dashboard.sessions_scroll_offset == 0
+
+    def test_scroll_sessions_clamps_to_max(self, dashboard):
+        """Sessions scroll should not exceed list length."""
+        dashboard.refresh_sessions()
+        for _ in range(10):
+            dashboard.handle_input("L")
+        # Should be clamped to max (3 sessions - 1 = 2)
+        assert dashboard.sessions_scroll_offset == 2
+
+    def test_toggle_diff_resets_scroll(self, dashboard, mock_backend):
+        """Toggling diff should reset scroll offset."""
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join([f"line {i}" for i in range(50)]),
+        )
+        dashboard.refresh_sessions()
+        dashboard.handle_input("d")  # Enable diff
+        dashboard.diff_scroll_offset = 20
+        dashboard.handle_input("d")  # Disable diff
+        dashboard.handle_input("d")  # Enable again
+        assert dashboard.diff_scroll_offset == 0
+
+    def test_scroll_diff_no_content(self, dashboard, mock_backend):
+        """Scrolling with no diff content should not crash."""
+        mock_backend.get_diff.return_value = None
+        dashboard.refresh_sessions()
+        dashboard.current_diff = None
+        dashboard.handle_input("l")  # Should not crash
+        assert dashboard.diff_scroll_offset == 0
+
+    def test_scroll_sessions_empty_list(self, mock_backend):
+        """Scrolling with no sessions should not crash."""
+        mock_backend.list_sessions.return_value = []
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        dashboard.handle_input("L")  # Should not crash
+        assert dashboard.sessions_scroll_offset == 0
+
     def test_help_panel_renders_all_keys(self, dashboard):
         """Help panel should show all keyboard shortcuts without truncation."""
         from rich.console import Console
@@ -186,9 +297,11 @@ class TestSessionsDashboard:
 
         # All keyboard shortcuts should be visible
         assert "j/k" in output
-        assert "navigate" in output
+        assert "nav" in output
         assert "d" in output
         assert "diff" in output
+        assert "h/l" in output
+        assert "scroll" in output
         assert "m" in output
         assert "merge" in output
         assert "r" in output
@@ -212,7 +325,7 @@ class TestSessionsDashboard:
         output = console.file.getvalue()
 
         # Should contain help keys even in small terminal
-        assert "j/k" in output or "navigate" in output
+        assert "j/k" in output or "nav" in output
 
     def test_render_with_diff_has_minimum_size_for_help(self, dashboard, mock_backend):
         """Layout with diff view should also have minimum_size for help panel."""
@@ -231,7 +344,7 @@ class TestSessionsDashboard:
         output = console.file.getvalue()
 
         # Help should still be visible (check for keys that appear early in the bar)
-        assert "j/k" in output or "navigate" in output
+        assert "j/k" in output or "nav" in output
 
 
 class TestWatchCommand:

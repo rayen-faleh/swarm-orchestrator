@@ -30,6 +30,10 @@ class SessionsDashboard:
     - x: Delete selected session
     - r: Refresh session list
     - q: Quit
+    - h/PageUp: Scroll diff up
+    - l/PageDown: Scroll diff down
+    - H: Scroll sessions list up
+    - L: Scroll sessions list down
     """
 
     def __init__(
@@ -46,6 +50,8 @@ class SessionsDashboard:
         self.current_diff: DiffResult | None = None
         self.status_message = ""
         self.console = Console()
+        self.diff_scroll_offset = 0
+        self.sessions_scroll_offset = 0
 
     def refresh_sessions(self) -> None:
         """Refresh the session list from the backend."""
@@ -88,6 +94,14 @@ class SessionsDashboard:
             self.status_message = "Refreshed"
         elif key == "q":
             self.running = False
+        elif key in ("h", "pageup"):
+            self._scroll_diff(-10)
+        elif key in ("l", "pagedown"):
+            self._scroll_diff(10)
+        elif key == "H":
+            self._scroll_sessions(-5)
+        elif key == "L":
+            self._scroll_sessions(5)
 
     def _move_selection(self, delta: int) -> None:
         """Move selection by delta (wrapping around)."""
@@ -102,6 +116,22 @@ class SessionsDashboard:
         self.show_diff = not self.show_diff
         if self.show_diff:
             self._load_diff()
+            self.diff_scroll_offset = 0
+
+    def _scroll_diff(self, delta: int) -> None:
+        """Scroll the diff panel by delta lines with bounds clamping."""
+        if not self.current_diff:
+            return
+        lines = self.current_diff.content.split("\n")
+        max_offset = max(0, len(lines) - 1)
+        self.diff_scroll_offset = max(0, min(max_offset, self.diff_scroll_offset + delta))
+
+    def _scroll_sessions(self, delta: int) -> None:
+        """Scroll the sessions list by delta lines with bounds clamping."""
+        if not self.sessions:
+            return
+        max_offset = max(0, len(self.sessions) - 1)
+        self.sessions_scroll_offset = max(0, min(max_offset, self.sessions_scroll_offset + delta))
 
     def _merge_selected(self) -> None:
         """Merge the selected session."""
@@ -189,7 +219,7 @@ class SessionsDashboard:
         return Panel(layout, title=title, border_style="blue")
 
     def _render_sessions_table(self) -> Table:
-        """Render the sessions table."""
+        """Render the sessions table with scroll offset support."""
         table = Table(show_header=True, header_style="bold cyan", expand=True)
         table.add_column("", width=2)  # Selection indicator
         table.add_column("Session", style="white")
@@ -200,9 +230,13 @@ class SessionsDashboard:
             table.add_row("", Text("No sessions found", style="dim"), "", "")
             return table
 
-        for i, session in enumerate(self.sessions):
-            indicator = "→" if i == self.selected_index else ""
-            row_style = "reverse" if i == self.selected_index else ""
+        # Apply scroll offset to visible sessions
+        visible_sessions = self.sessions[self.sessions_scroll_offset:]
+
+        for i, session in enumerate(visible_sessions):
+            actual_index = i + self.sessions_scroll_offset
+            indicator = "→" if actual_index == self.selected_index else ""
+            row_style = "reverse" if actual_index == self.selected_index else ""
 
             status_style = {
                 "running": "yellow",
@@ -220,35 +254,43 @@ class SessionsDashboard:
         return table
 
     def _render_diff(self) -> Panel:
-        """Render the diff preview panel."""
+        """Render the diff preview panel with scroll offset support."""
         if not self.current_diff:
             return Panel(Text("No diff available", style="dim"), title="Diff")
 
-        content = self.current_diff.content[:2000]  # Limit for display
-        if len(self.current_diff.content) > 2000:
-            content += "\n... (truncated)"
+        lines = self.current_diff.content.split("\n")
+        # Apply scroll offset and take visible lines
+        visible_lines = lines[self.diff_scroll_offset:]
+        content = "\n".join(visible_lines[:100])  # Limit visible lines
+
+        if len(visible_lines) > 100:
+            content += "\n... (more below)"
+
+        title = f"Diff ({len(self.current_diff.files)} files)"
+        if self.diff_scroll_offset > 0:
+            title += f" [line {self.diff_scroll_offset + 1}]"
 
         try:
-            syntax = Syntax(content, "diff", theme="monokai", line_numbers=True)
-            return Panel(syntax, title=f"Diff ({len(self.current_diff.files)} files)")
+            syntax = Syntax(content, "diff", theme="monokai", line_numbers=True, start_line=self.diff_scroll_offset + 1)
+            return Panel(syntax, title=title)
         except Exception:
-            return Panel(Text(content), title=f"Diff ({len(self.current_diff.files)} files)")
+            return Panel(Text(content), title=title)
 
     def _render_help(self) -> Panel:
         """Render the help panel."""
         help_text = Text()
         keys = [
-            ("j/k", "navigate"),
+            ("j/k", "nav"),
             ("d", "diff"),
+            ("h/l", "scroll"),
             ("m", "merge"),
-            ("s", "stop"),
-            ("x", "delete"),
+            ("x", "del"),
             ("r", "refresh"),
             ("q", "quit"),
         ]
         for i, (key, desc) in enumerate(keys):
             if i > 0:
-                help_text.append("  │  ", style="dim")
+                help_text.append(" │ ", style="dim")
             help_text.append(key, style="bold cyan")
             help_text.append(f" {desc}", style="white")
 
