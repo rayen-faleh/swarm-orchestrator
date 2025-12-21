@@ -285,16 +285,20 @@ def run(
         # Final summary
         console.print("\n" + "━" * 50)
         if result.overall_success:
+            all_merged = all(r.merged for r in result.subtask_results)
             if auto_merge:
-                all_merged = all(r.merged for r in result.subtask_results)
                 if all_merged:
                     console.print("[bold green]✅ Consensus reached and all winners merged![/]")
                 else:
                     console.print("[bold yellow]✅ Consensus reached, but some merges failed.[/]")
                     console.print("[dim]Check the output above for details.[/]")
             else:
-                console.print("[bold green]✅ Consensus reached! Winner session ready for your review.[/]")
-                console.print("[dim]Review the changes above, then merge when satisfied.[/]")
+                # Dashboard was shown for review - provide appropriate message
+                if all_merged:
+                    console.print("[bold green]✅ All tasks complete and merged![/]")
+                else:
+                    console.print("[bold green]✅ All tasks complete.[/]")
+                    console.print("[dim]Use 'swarm watch' to review and merge remaining sessions.[/]")
         else:
             no_consensus = sum(1 for r in result.subtask_results if not r.vote_result.consensus_reached)
             console.print(

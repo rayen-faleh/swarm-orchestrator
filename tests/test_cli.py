@@ -322,6 +322,96 @@ class TestRunCommandWithMCP:
             assert result.exit_code != 0 or "init" in result.output.lower()
 
 
+class TestRunCommandExitFlow:
+    """Tests for the CLI exit flow after orchestration completes."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    def _make_result(self, merged: bool, consensus: bool = True):
+        """Create a mock OrchestrationResult."""
+        mock_vote_result = MagicMock()
+        mock_vote_result.consensus_reached = consensus
+
+        mock_subtask_result = MagicMock()
+        mock_subtask_result.vote_result = mock_vote_result
+        mock_subtask_result.winner_session = "winner-session" if consensus else None
+        mock_subtask_result.merged = merged
+
+        mock_result = MagicMock()
+        mock_result.overall_success = consensus
+        mock_result.subtask_results = [mock_subtask_result]
+
+        return mock_result
+
+    def test_auto_merge_success_shows_merged_message(self, runner):
+        """When auto_merge=True and all merged, should show 'merged' message."""
+        result = self._make_result(merged=True)
+
+        with runner.isolated_filesystem():
+            Path(".swarm").mkdir()
+            Path(".swarm/config.json").write_text('{"worktree_backend": "schaltwerk"}')
+
+            with patch("swarm_orchestrator.cli.Orchestrator") as mock_orch:
+                mock_orch.return_value.run.return_value = result
+
+                cli_result = runner.invoke(main, ["run", "test", "--auto-merge"])
+
+                # Should mention merged
+                assert "merged" in cli_result.output.lower()
+
+    def test_non_auto_merge_after_dashboard_shows_appropriate_message(self, runner):
+        """When auto_merge=False, should show message appropriate for post-dashboard flow."""
+        result = self._make_result(merged=False)
+
+        with runner.isolated_filesystem():
+            Path(".swarm").mkdir()
+            Path(".swarm/config.json").write_text('{"worktree_backend": "schaltwerk"}')
+
+            with patch("swarm_orchestrator.cli.Orchestrator") as mock_orch:
+                mock_orch.return_value.run.return_value = result
+
+                cli_result = runner.invoke(main, ["run", "test"])
+
+                # Should NOT show old redundant message about reviewing "above"
+                assert "review the changes above" not in cli_result.output.lower()
+                # Should acknowledge completion
+                assert "complete" in cli_result.output.lower() or "done" in cli_result.output.lower()
+
+    def test_non_auto_merge_all_merged_in_dashboard_shows_merged_message(self, runner):
+        """When user merged all sessions in dashboard, should acknowledge that."""
+        result = self._make_result(merged=True)
+
+        with runner.isolated_filesystem():
+            Path(".swarm").mkdir()
+            Path(".swarm/config.json").write_text('{"worktree_backend": "schaltwerk"}')
+
+            with patch("swarm_orchestrator.cli.Orchestrator") as mock_orch:
+                mock_orch.return_value.run.return_value = result
+
+                cli_result = runner.invoke(main, ["run", "test"])
+
+                # Should mention merged
+                assert "merged" in cli_result.output.lower()
+
+    def test_exit_code_zero_on_success(self, runner):
+        """Should exit with code 0 on successful orchestration."""
+        result = self._make_result(merged=True)
+
+        with runner.isolated_filesystem():
+            Path(".swarm").mkdir()
+            Path(".swarm/config.json").write_text('{"worktree_backend": "schaltwerk"}')
+
+            with patch("swarm_orchestrator.cli.Orchestrator") as mock_orch:
+                mock_orch.return_value.run.return_value = result
+
+                cli_result = runner.invoke(main, ["run", "test"])
+
+                assert cli_result.exit_code == 0
+
+
 class TestServerCommand:
     """Tests for the 'swarm server' command."""
 
