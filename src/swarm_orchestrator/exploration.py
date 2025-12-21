@@ -115,6 +115,7 @@ class ExplorationExecutor:
         timeout: int = 120,
         enable_web_research: bool = False,
         working_dir: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """
         Initialize the exploration executor.
@@ -123,10 +124,12 @@ class ExplorationExecutor:
             timeout: Timeout in seconds for Claude CLI calls
             enable_web_research: Whether to include web research in exploration
             working_dir: Working directory for codebase analysis
+            model: Model to use for exploration (e.g., 'claude-3-haiku')
         """
         self.timeout = timeout
         self.enable_web_research = enable_web_research
         self.working_dir = working_dir
+        self.model = model
 
     def explore(self, query: str) -> ExplorationResult:
         """
@@ -172,8 +175,12 @@ Include URLs to official documentation that would help with implementation.
 
         Uses your existing Claude Code authentication (Max/Pro subscription).
         """
+        cmd = ["claude", "-p", prompt, "--output-format", "text"]
+        if self.model:
+            cmd.extend(["--model", self.model])
+
         result = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text"],
+            cmd,
             capture_output=True,
             text=True,
             timeout=self.timeout,

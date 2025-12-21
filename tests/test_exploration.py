@@ -249,6 +249,7 @@ class TestExplorationExecutorInit:
         assert executor.timeout == 120
         assert executor.enable_web_research is False
         assert executor.working_dir is None
+        assert executor.model is None
 
     def test_custom_initialization(self):
         """Should accept custom configuration."""
@@ -261,6 +262,69 @@ class TestExplorationExecutorInit:
         assert executor.timeout == 60
         assert executor.enable_web_research is True
         assert executor.working_dir == "/custom/path"
+
+    def test_initialization_with_model(self):
+        """Should accept model parameter."""
+        executor = ExplorationExecutor(model="claude-3-haiku")
+
+        assert executor.model == "claude-3-haiku"
+
+
+class TestExplorationExecutorModel:
+    """Tests for ExplorationExecutor model parameter."""
+
+    @pytest.fixture
+    def mock_subprocess(self):
+        """Create a mock subprocess.run."""
+        with patch("swarm_orchestrator.exploration.subprocess.run") as mock:
+            yield mock
+
+    def test_cli_command_includes_model_flag(self, mock_subprocess):
+        """Should include --model flag when model is specified."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"needs_exploration": false, "code_insights": [], "web_findings": [], "context_summary": ""}',
+            stderr="",
+        )
+
+        executor = ExplorationExecutor(model="claude-3-haiku")
+        executor.explore("Some task")
+
+        call_args = mock_subprocess.call_args
+        cmd = call_args[0][0]
+        assert "--model" in cmd
+        assert "claude-3-haiku" in cmd
+
+    def test_cli_command_without_model_flag(self, mock_subprocess):
+        """Should not include --model flag when model is None."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"needs_exploration": false, "code_insights": [], "web_findings": [], "context_summary": ""}',
+            stderr="",
+        )
+
+        executor = ExplorationExecutor()
+        executor.explore("Some task")
+
+        call_args = mock_subprocess.call_args
+        cmd = call_args[0][0]
+        assert "--model" not in cmd
+
+    def test_model_flag_position_in_command(self, mock_subprocess):
+        """Should add model flag after base command."""
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout='{"needs_exploration": false, "code_insights": [], "web_findings": [], "context_summary": ""}',
+            stderr="",
+        )
+
+        executor = ExplorationExecutor(model="claude-3-sonnet")
+        executor.explore("Task")
+
+        call_args = mock_subprocess.call_args
+        cmd = call_args[0][0]
+        model_index = cmd.index("--model")
+        assert cmd[model_index + 1] == "claude-3-sonnet"
 
 
 class TestExplorationResultStructure:
