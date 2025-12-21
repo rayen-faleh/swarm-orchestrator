@@ -21,27 +21,26 @@ class TestSwarmConfig:
     """Tests for SwarmConfig dataclass."""
 
     def test_default_values(self):
-        """Default config uses schaltwerk and claude-cli backends."""
+        """Default config uses schaltwerk backends and claude cli_tool."""
         config = SwarmConfig()
 
         assert config.worktree_backend == "schaltwerk"
         assert config.agent_backend == "schaltwerk"
-        assert config.llm_backend == "claude-cli"
+        assert config.cli_tool == "claude"
         assert config.llm_model == "claude-sonnet-4-20250514"
         assert config.llm_timeout == 120
-        assert config.cli_tool == "claude"
 
     def test_custom_values(self):
         """Config accepts custom values."""
         config = SwarmConfig(
             worktree_backend="schaltwerk",
             agent_backend="schaltwerk",
-            llm_backend="anthropic-api",
+            cli_tool="anthropic-api",
             llm_model="claude-opus-4-20250514",
             llm_timeout=300,
         )
 
-        assert config.llm_backend == "anthropic-api"
+        assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-opus-4-20250514"
         assert config.llm_timeout == 300
 
@@ -60,49 +59,42 @@ class TestSwarmConfig:
 
         assert "agent_backend" in str(exc_info.value)
 
-    def test_invalid_llm_backend(self):
-        """Invalid llm_backend raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
-            SwarmConfig(llm_backend="invalid")
-
-        assert "llm_backend" in str(exc_info.value)
-
     def test_from_dict(self):
         """SwarmConfig.from_dict creates config from dictionary."""
         data = {
             "worktree_backend": "schaltwerk",
             "agent_backend": "schaltwerk",
-            "llm_backend": "anthropic-api",
+            "cli_tool": "anthropic-api",
             "llm_model": "claude-opus-4-20250514",
             "llm_timeout": 180,
         }
 
         config = SwarmConfig.from_dict(data)
 
-        assert config.llm_backend == "anthropic-api"
+        assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-opus-4-20250514"
         assert config.llm_timeout == 180
 
     def test_from_dict_with_defaults(self):
         """SwarmConfig.from_dict uses defaults for missing keys."""
-        data = {"llm_backend": "anthropic-api"}
+        data = {"cli_tool": "anthropic-api"}
 
         config = SwarmConfig.from_dict(data)
 
         assert config.worktree_backend == "schaltwerk"
         assert config.agent_backend == "schaltwerk"
-        assert config.llm_backend == "anthropic-api"
+        assert config.cli_tool == "anthropic-api"
         assert config.llm_model == "claude-sonnet-4-20250514"
 
     def test_to_dict(self):
         """SwarmConfig.to_dict returns dictionary representation."""
-        config = SwarmConfig(llm_backend="anthropic-api", llm_timeout=200)
+        config = SwarmConfig(cli_tool="anthropic-api", llm_timeout=200)
 
         data = config.to_dict()
 
         assert data["worktree_backend"] == "schaltwerk"
         assert data["agent_backend"] == "schaltwerk"
-        assert data["llm_backend"] == "anthropic-api"
+        assert data["cli_tool"] == "anthropic-api"
         assert data["llm_timeout"] == 200
 
 
@@ -115,11 +107,11 @@ class TestLoadConfig:
         config_dir = tmp_path / ".swarm"
         config_dir.mkdir()
         config_file = config_dir / "config.json"
-        config_file.write_text(json.dumps({"llm_backend": "anthropic-api"}))
+        config_file.write_text(json.dumps({"cli_tool": "anthropic-api"}))
 
         config = load_config()
 
-        assert config.llm_backend == "anthropic-api"
+        assert config.cli_tool == "anthropic-api"
 
     def test_load_from_custom_path(self, tmp_path):
         """load_config loads from specified path."""
@@ -138,7 +130,6 @@ class TestLoadConfig:
 
         assert config.worktree_backend == "schaltwerk"
         assert config.agent_backend == "schaltwerk"
-        assert config.llm_backend == "claude-cli"
         assert config.cli_tool == "claude"
 
     def test_invalid_json_raises_error(self, tmp_path):
@@ -158,14 +149,14 @@ class TestSaveConfig:
     def test_save_to_default_path(self, tmp_path, monkeypatch):
         """save_config saves to .swarm/config.json by default."""
         monkeypatch.chdir(tmp_path)
-        config = SwarmConfig(llm_backend="anthropic-api")
+        config = SwarmConfig(cli_tool="anthropic-api")
 
         save_config(config)
 
         config_file = tmp_path / ".swarm" / "config.json"
         assert config_file.exists()
         data = json.loads(config_file.read_text())
-        assert data["llm_backend"] == "anthropic-api"
+        assert data["cli_tool"] == "anthropic-api"
 
     def test_save_to_custom_path(self, tmp_path):
         """save_config saves to specified path."""
@@ -196,10 +187,9 @@ class TestConfigIntegration:
         original = SwarmConfig(
             worktree_backend="schaltwerk",
             agent_backend="schaltwerk",
-            llm_backend="anthropic-api",
+            cli_tool="opencode",
             llm_model="claude-opus-4-20250514",
             llm_timeout=250,
-            cli_tool="opencode",
         )
         config_file = tmp_path / "config.json"
 
@@ -208,20 +198,19 @@ class TestConfigIntegration:
 
         assert loaded.worktree_backend == original.worktree_backend
         assert loaded.agent_backend == original.agent_backend
-        assert loaded.llm_backend == original.llm_backend
+        assert loaded.cli_tool == original.cli_tool
         assert loaded.llm_model == original.llm_model
         assert loaded.llm_timeout == original.llm_timeout
-        assert loaded.cli_tool == original.cli_tool
 
 
 class TestBackendRegistry:
     """Tests for the centralized backend registry."""
 
     def test_backends_has_all_types(self):
-        """BACKENDS should have worktree, agent, and llm entries."""
+        """BACKENDS should have worktree, agent, and cli_tool entries."""
         assert "worktree" in BACKENDS
         assert "agent" in BACKENDS
-        assert "llm" in BACKENDS
+        assert "cli_tool" in BACKENDS
 
     def test_get_backend_choices_worktree(self):
         """get_backend_choices returns worktree options."""
@@ -237,12 +226,6 @@ class TestBackendRegistry:
         """get_backend_choices('agent') includes 'cursor-cli'."""
         choices = get_backend_choices("agent")
         assert "cursor-cli" in choices
-
-    def test_get_backend_choices_llm(self):
-        """get_backend_choices returns LLM options."""
-        choices = get_backend_choices("llm")
-        assert "claude-cli" in choices
-        assert "anthropic-api" in choices
 
     def test_get_backend_choices_unknown(self):
         """get_backend_choices returns empty list for unknown type."""
@@ -306,16 +289,18 @@ class TestGitNativeAgentBackendConfig:
 
 
 class TestCLIToolConfig:
-    """Tests for cli_tool configuration option."""
+    """Tests for cli_tool configuration option (unified CLI abstraction)."""
 
     def test_backends_contains_cli_tool(self):
         """BACKENDS contains 'cli_tool' entry."""
         assert "cli_tool" in BACKENDS
 
-    def test_cli_tool_has_claude_and_opencode(self):
-        """BACKENDS['cli_tool'] contains 'claude' and 'opencode' entries."""
+    def test_cli_tool_has_all_options(self):
+        """BACKENDS['cli_tool'] contains all unified CLI options."""
         assert "claude" in BACKENDS["cli_tool"]
         assert "opencode" in BACKENDS["cli_tool"]
+        assert "cursor" in BACKENDS["cli_tool"]
+        assert "anthropic-api" in BACKENDS["cli_tool"]
 
     def test_cli_tool_options_have_descriptions(self):
         """Each cli_tool option has a description."""
@@ -328,6 +313,8 @@ class TestCLIToolConfig:
         choices = get_backend_choices("cli_tool")
         assert "claude" in choices
         assert "opencode" in choices
+        assert "cursor" in choices
+        assert "anthropic-api" in choices
 
     def test_default_cli_tool_is_claude(self):
         """Default cli_tool is 'claude'."""
@@ -343,6 +330,16 @@ class TestCLIToolConfig:
         """SwarmConfig accepts cli_tool='opencode'."""
         config = SwarmConfig(cli_tool="opencode")
         assert config.cli_tool == "opencode"
+
+    def test_cli_tool_accepts_cursor(self):
+        """SwarmConfig accepts cli_tool='cursor'."""
+        config = SwarmConfig(cli_tool="cursor")
+        assert config.cli_tool == "cursor"
+
+    def test_cli_tool_accepts_anthropic_api(self):
+        """SwarmConfig accepts cli_tool='anthropic-api'."""
+        config = SwarmConfig(cli_tool="anthropic-api")
+        assert config.cli_tool == "anthropic-api"
 
     def test_invalid_cli_tool_raises_error(self):
         """Invalid cli_tool raises ValueError."""
@@ -380,6 +377,45 @@ class TestCLIToolConfig:
         loaded = load_config(config_file)
 
         assert loaded.cli_tool == "opencode"
+
+
+class TestBackwardsCompatMigration:
+    """Tests for backwards-compatible migration of llm_backend to cli_tool."""
+
+    def test_llm_backend_claude_cli_migrates_to_claude(self):
+        """Old llm_backend='claude-cli' migrates to cli_tool='claude'."""
+        data = {"llm_backend": "claude-cli"}
+        config = SwarmConfig.from_dict(data)
+        assert config.cli_tool == "claude"
+
+    def test_llm_backend_anthropic_api_migrates(self):
+        """Old llm_backend='anthropic-api' migrates to cli_tool='anthropic-api'."""
+        data = {"llm_backend": "anthropic-api"}
+        config = SwarmConfig.from_dict(data)
+        assert config.cli_tool == "anthropic-api"
+
+    def test_cli_tool_takes_precedence_over_llm_backend(self):
+        """If both are specified, cli_tool takes precedence."""
+        data = {"llm_backend": "anthropic-api", "cli_tool": "opencode"}
+        config = SwarmConfig.from_dict(data)
+        assert config.cli_tool == "opencode"
+
+    def test_old_config_file_still_works(self, tmp_path):
+        """Config files with old llm_backend field still load correctly."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"llm_backend": "anthropic-api", "llm_model": "claude-opus-4-20250514"}')
+
+        config = load_config(config_file)
+
+        assert config.cli_tool == "anthropic-api"
+        assert config.llm_model == "claude-opus-4-20250514"
+
+    def test_to_dict_does_not_include_llm_backend(self):
+        """to_dict no longer includes llm_backend field."""
+        config = SwarmConfig(cli_tool="anthropic-api")
+        data = config.to_dict()
+        assert "llm_backend" not in data
+        assert data["cli_tool"] == "anthropic-api"
 
 
 class TestConfigToCommandIntegration:

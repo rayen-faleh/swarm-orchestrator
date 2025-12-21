@@ -22,14 +22,18 @@ BACKENDS = {
         "cursor-cli": "Uses Cursor CLI for agent execution - requires cursor-agent installed and authentication via 'swarm cursor login' or CURSOR_API_KEY env var",
         "git-native": "Uses native git worktrees with Claude CLI for agent execution without MCP dependency",
     },
-    "llm": {
-        "claude-cli": "Uses 'claude' CLI tool - requires Claude Code installed (default)",
-        "anthropic-api": "Uses Anthropic API directly - requires ANTHROPIC_API_KEY env var",
-    },
     "cli_tool": {
-        "claude": "Uses Claude Code CLI ('claude \"prompt\"') - default for git-native backend",
-        "opencode": "Uses OpenCode CLI ('opencode -p \"prompt\"') - requires opencode installed",
+        "claude": "Uses Claude Code CLI - default for both decomposition and agent execution",
+        "opencode": "Uses OpenCode CLI for agent execution (decomposition uses Claude CLI)",
+        "cursor": "Uses Cursor CLI for agent execution (decomposition uses Claude CLI)",
+        "anthropic-api": "Uses Anthropic API directly for decomposition - requires ANTHROPIC_API_KEY env var",
     },
+}
+
+# Mapping from old llm_backend values to new cli_tool values for backwards compatibility
+_LLM_BACKEND_MIGRATION = {
+    "claude-cli": "claude",
+    "anthropic-api": "anthropic-api",
 }
 
 
@@ -55,29 +59,27 @@ class SwarmConfig:
     Configuration for swarm-orchestrator backends.
 
     Allows users to select which backends to use for worktree management,
-    agent execution, and LLM calls.
+    agent execution, and CLI tool for both decomposition and agent execution.
 
     Attributes:
-        worktree_backend: Backend for worktree/isolation ("schaltwerk")
-        agent_backend: Backend for agent execution ("schaltwerk")
-        llm_backend: Backend for LLM calls ("claude-cli" or "anthropic-api")
+        worktree_backend: Backend for worktree/isolation ("schaltwerk" or "git-native")
+        agent_backend: Backend for agent execution ("schaltwerk", "cursor-cli", or "git-native")
+        cli_tool: Unified CLI tool for decomposition and agent execution.
+                  Options: "claude", "opencode", "cursor", "anthropic-api"
         llm_model: Model to use for API backend (default: claude-sonnet-4-20250514)
         llm_timeout: Timeout for LLM calls in seconds (default: 120)
-        cli_tool: CLI tool for git-native backend ("claude" or "opencode")
     """
 
     worktree_backend: str = "schaltwerk"
     agent_backend: str = "schaltwerk"
-    llm_backend: str = "claude-cli"
+    cli_tool: str = "claude"
     llm_model: str = "claude-sonnet-4-20250514"
     llm_timeout: int = 120
-    cli_tool: str = "claude"
 
     def __post_init__(self):
         """Validate configuration values."""
         valid_worktree = set(get_backend_choices("worktree"))
         valid_agent = set(get_backend_choices("agent"))
-        valid_llm = set(get_backend_choices("llm"))
         valid_cli_tool = set(get_backend_choices("cli_tool"))
 
         if self.worktree_backend not in valid_worktree:
@@ -90,11 +92,6 @@ class SwarmConfig:
                 f"Invalid agent_backend: {self.agent_backend}. "
                 f"Valid options: {valid_agent}"
             )
-        if self.llm_backend not in valid_llm:
-            raise ValueError(
-                f"Invalid llm_backend: {self.llm_backend}. "
-                f"Valid options: {valid_llm}"
-            )
         if self.cli_tool not in valid_cli_tool:
             raise ValueError(
                 f"Invalid cli_tool: {self.cli_tool}. "
@@ -103,14 +100,26 @@ class SwarmConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SwarmConfig":
-        """Create SwarmConfig from a dictionary."""
+        """Create SwarmConfig from a dictionary.
+
+        Includes backwards-compatible migration from old llm_backend field.
+        If both llm_backend and cli_tool are present, cli_tool takes precedence.
+        """
+        # Migrate from old llm_backend field if present
+        cli_tool = data.get("cli_tool")
+        if cli_tool is None and "llm_backend" in data:
+            # Migrate old llm_backend value to new cli_tool
+            old_llm_backend = data["llm_backend"]
+            cli_tool = _LLM_BACKEND_MIGRATION.get(old_llm_backend, "claude")
+        elif cli_tool is None:
+            cli_tool = "claude"
+
         return cls(
             worktree_backend=data.get("worktree_backend", "schaltwerk"),
             agent_backend=data.get("agent_backend", "schaltwerk"),
-            llm_backend=data.get("llm_backend", "claude-cli"),
+            cli_tool=cli_tool,
             llm_model=data.get("llm_model", "claude-sonnet-4-20250514"),
             llm_timeout=data.get("llm_timeout", 120),
-            cli_tool=data.get("cli_tool", "claude"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,10 +127,9 @@ class SwarmConfig:
         return {
             "worktree_backend": self.worktree_backend,
             "agent_backend": self.agent_backend,
-            "llm_backend": self.llm_backend,
+            "cli_tool": self.cli_tool,
             "llm_model": self.llm_model,
             "llm_timeout": self.llm_timeout,
-            "cli_tool": self.cli_tool,
         }
 
 

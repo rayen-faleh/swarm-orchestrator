@@ -159,7 +159,7 @@ def main():
     Backends:
       --worktree-backend  Git worktree isolation (schaltwerk)
       --agent-backend     Agent execution (schaltwerk)
-      --llm-backend       LLM for decomposition (claude-cli, anthropic-api)
+      --cli-tool          CLI tool for decomposition and agents (claude, opencode, cursor, anthropic-api)
 
     \b
     Quick start:
@@ -208,14 +208,14 @@ def main():
     help="Agent execution backend. schaltwerk: Schaltwerk MCP to spawn Claude agents (default).",
 )
 @click.option(
-    "--llm-backend",
-    type=click.Choice(get_backend_choices("llm")),
-    help="LLM backend for task decomposition. claude-cli: Uses 'claude' CLI (default, requires Claude Code). anthropic-api: Uses Anthropic API (requires ANTHROPIC_API_KEY).",
+    "--cli-tool",
+    type=click.Choice(get_backend_choices("cli_tool")),
+    help="CLI tool for decomposition and agent execution. claude (default), opencode, cursor, or anthropic-api.",
 )
 @click.option(
     "--llm-model",
     default=None,
-    help="Model for anthropic-api backend (default: claude-sonnet-4-20250514). Ignored with claude-cli.",
+    help="Model for anthropic-api backend (default: claude-sonnet-4-20250514). Ignored with other cli_tools.",
 )
 def run(
     query: str,
@@ -226,7 +226,7 @@ def run(
     config: str | None,
     worktree_backend: str | None,
     agent_backend: str | None,
-    llm_backend: str | None,
+    cli_tool: str | None,
     llm_model: str | None,
 ):
     """Run a task through the multi-agent consensus system.
@@ -237,9 +237,11 @@ def run(
       CLI flags override config file settings.
 
     \b
-    LLM Backend Selection:
-      Use claude-cli (default) if you have Claude Code installed.
-      Use anthropic-api if you prefer direct API calls or don't have Claude Code.
+    CLI Tool Selection:
+      claude (default): Uses Claude Code CLI for both decomposition and agents.
+      opencode: Uses OpenCode CLI for agents, Claude CLI for decomposition.
+      cursor: Uses Cursor CLI for agents, Claude CLI for decomposition.
+      anthropic-api: Uses Anthropic API for decomposition (requires ANTHROPIC_API_KEY).
     """
     console.print(
         Panel.fit(
@@ -257,8 +259,8 @@ def run(
             swarm_config.worktree_backend = worktree_backend
         if agent_backend:
             swarm_config.agent_backend = agent_backend
-        if llm_backend:
-            swarm_config.llm_backend = llm_backend
+        if cli_tool:
+            swarm_config.cli_tool = cli_tool
         if llm_model:
             swarm_config.llm_model = llm_model
 
@@ -419,7 +421,7 @@ def init(force: bool, non_interactive: bool):
     Interactively prompts for backend selections:
       - Worktree backend (git isolation)
       - Agent backend (agent execution)
-      - LLM backend (task decomposition)
+      - CLI Tool (decomposition and agent execution)
 
     \b
     Creates:
@@ -460,16 +462,13 @@ def init(force: bool, non_interactive: bool):
     agent_backend = _prompt_backend_selection(
         "agent", "Agent Backend (agent execution)", is_interactive
     )
-    llm_backend = _prompt_backend_selection(
-        "llm", "LLM Backend (task decomposition)", is_interactive
-    )
     cli_tool = _prompt_backend_selection(
-        "cli_tool", "CLI Tool (agent command)", is_interactive
+        "cli_tool", "CLI Tool (decomposition and agent execution)", is_interactive
     )
 
     # Optional model selection for anthropic-api
     llm_model = "claude-sonnet-4-20250514"
-    if llm_backend == "anthropic-api" and is_interactive:
+    if cli_tool == "anthropic-api" and is_interactive:
         console.print("\n[bold]Model Selection[/]")
         console.print("  [cyan]1[/]) claude-sonnet-4-20250514 [dim](default, fast)[/]")
         console.print("  [cyan]2[/]) claude-opus-4-20250514 [dim](most capable)[/]")
@@ -506,9 +505,8 @@ def init(force: bool, non_interactive: bool):
     swarm_config = SwarmConfig(
         worktree_backend=worktree_backend,
         agent_backend=agent_backend,
-        llm_backend=llm_backend,
-        llm_model=llm_model,
         cli_tool=cli_tool,
+        llm_model=llm_model,
     )
     save_config(swarm_config)
     console.print(f"   ✓ Created {swarm_dir}/config.json")
@@ -517,9 +515,8 @@ def init(force: bool, non_interactive: bool):
     console.print(f"\n[dim]Configuration:[/]")
     console.print(f"   Worktree: {worktree_backend}")
     console.print(f"   Agent: {agent_backend}")
-    console.print(f"   LLM: {llm_backend}")
     console.print(f"   CLI Tool: {cli_tool}")
-    if llm_backend == "anthropic-api":
+    if cli_tool == "anthropic-api":
         console.print(f"   Model: {llm_model}")
     console.print(f"\n[dim]State file:[/] {repo_root / '.swarm' / 'state.json'}")
     console.print("\n[dim]Next steps:[/]")
@@ -543,10 +540,9 @@ def config():
 CONFIG_KEYS = {
     "worktree-backend": ("worktree_backend", "worktree"),
     "agent-backend": ("agent_backend", "agent"),
-    "llm-backend": ("llm_backend", "llm"),
+    "cli-tool": ("cli_tool", "cli_tool"),
     "llm-model": ("llm_model", None),
     "llm-timeout": ("llm_timeout", None),
-    "cli-tool": ("cli_tool", "cli_tool"),
 }
 
 
@@ -593,12 +589,12 @@ def config_set(key: str, value: str):
     """Set a configuration value.
 
     \b
-    KEY is one of: worktree-backend, agent-backend, llm-backend, llm-model, llm-timeout
+    KEY is one of: worktree-backend, agent-backend, cli-tool, llm-model, llm-timeout
     VALUE must be valid for the given key.
 
     \b
     Examples:
-      swarm config set llm-backend anthropic-api
+      swarm config set cli-tool anthropic-api
       swarm config set llm-model claude-opus-4-20250514
     """
     if not _config_exists():

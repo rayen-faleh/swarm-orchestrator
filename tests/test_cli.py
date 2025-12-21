@@ -224,21 +224,20 @@ class TestInitCommand:
         """Interactive mode should prompt for all backend selections."""
         with runner.isolated_filesystem(temp_dir=temp_project):
             # Simulate user selecting defaults for all prompts (input "1" for each)
-            # Now includes cli_tool prompt
-            result = runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
+            # 3 prompts: worktree, agent, cli_tool
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
 
             assert result.exit_code == 0
             # Should prompt for backends
             assert "worktree" in result.output.lower()
             assert "agent" in result.output.lower()
-            assert "llm" in result.output.lower()
             assert "cli tool" in result.output.lower()
 
     def test_init_interactive_creates_config_with_selections(self, runner, temp_project):
         """Interactive mode should create config.json with selected backends."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # Select option 1 for each backend (now includes cli_tool)
-            result = runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
+            # Select option 1 for each backend (worktree, agent, cli_tool)
+            result = runner.invoke(main, ["init"], input="1\n1\n1\n")
 
             assert result.exit_code == 0
             assert Path(".swarm/config.json").exists()
@@ -246,18 +245,17 @@ class TestInitCommand:
             config = json.loads(Path(".swarm/config.json").read_text())
             assert "worktree_backend" in config
             assert "agent_backend" in config
-            assert "llm_backend" in config
             assert "cli_tool" in config
 
     def test_init_interactive_anthropic_api_prompts_for_model(self, runner, temp_project):
         """When anthropic-api is selected, should prompt for model preference."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # Select: 1 (worktree), 1 (agent), 2 (anthropic-api), 1 (cli_tool), 1 (default model)
-            result = runner.invoke(main, ["init"], input="1\n1\n2\n1\n1\n")
+            # Select: 1 (worktree), 1 (agent), 4 (anthropic-api), 1 (default model)
+            result = runner.invoke(main, ["init"], input="1\n1\n4\n1\n")
 
             assert result.exit_code == 0
             config = json.loads(Path(".swarm/config.json").read_text())
-            assert config["llm_backend"] == "anthropic-api"
+            assert config["cli_tool"] == "anthropic-api"
 
     def test_init_non_interactive_when_not_tty(self, runner, temp_project):
         """Non-interactive mode should use defaults when stdin is not a tty."""
@@ -271,21 +269,20 @@ class TestInitCommand:
                 config = json.loads(Path(".swarm/config.json").read_text())
                 assert config["worktree_backend"] == "schaltwerk"
                 assert config["agent_backend"] == "schaltwerk"
-                assert config["llm_backend"] == "claude-cli"
                 assert config["cli_tool"] == "claude"
 
     def test_init_force_allows_reinit(self, runner, temp_project):
         """--force with interactive should allow re-initialization."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # First init (4 prompts: worktree, agent, llm, cli_tool)
-            runner.invoke(main, ["init"], input="1\n1\n1\n1\n")
+            # First init (3 prompts: worktree, agent, cli_tool)
+            runner.invoke(main, ["init"], input="1\n1\n1\n")
 
-            # Second init with force (5 prompts: worktree, agent, llm, cli_tool, model)
-            result = runner.invoke(main, ["init", "--force"], input="1\n1\n2\n1\n1\n")
+            # Second init with force (4 prompts: worktree, agent, cli_tool=anthropic-api, model)
+            result = runner.invoke(main, ["init", "--force"], input="1\n1\n4\n1\n")
 
             assert result.exit_code == 0
             config = json.loads(Path(".swarm/config.json").read_text())
-            assert config["llm_backend"] == "anthropic-api"
+            assert config["cli_tool"] == "anthropic-api"
 
     def test_init_cli_tool_appears_in_summary(self, runner, temp_project):
         """Init should display selected cli_tool in configuration summary."""
@@ -300,8 +297,8 @@ class TestInitCommand:
     def test_init_interactive_cli_tool_selection_opencode(self, runner, temp_project):
         """Interactive mode should allow selecting opencode as cli_tool."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            # Select: 1 (worktree), 1 (agent), 1 (llm), 2 (opencode)
-            result = runner.invoke(main, ["init"], input="1\n1\n1\n2\n")
+            # Select: 1 (worktree), 1 (agent), 2 (opencode)
+            result = runner.invoke(main, ["init"], input="1\n1\n2\n")
 
             assert result.exit_code == 0
             config = json.loads(Path(".swarm/config.json").read_text())
@@ -372,7 +369,7 @@ class TestHelpDocumentation:
         assert result.exit_code == 0
         assert "--worktree-backend" in result.output
         assert "--agent-backend" in result.output
-        assert "--llm-backend" in result.output
+        assert "--cli-tool" in result.output
 
     def test_run_help_documents_worktree_backend(self, runner):
         """Run help should document worktree backend options."""
@@ -390,17 +387,16 @@ class TestHelpDocumentation:
         assert "--agent-backend" in result.output
         assert "schaltwerk" in result.output.lower()
 
-    def test_run_help_documents_llm_backends(self, runner):
-        """Run help should document LLM backend options with descriptions."""
+    def test_run_help_documents_cli_tool(self, runner):
+        """Run help should document CLI tool options with descriptions."""
         result = runner.invoke(main, ["run", "--help"])
 
         assert result.exit_code == 0
-        assert "--llm-backend" in result.output
-        assert "claude-cli" in result.output
+        assert "--cli-tool" in result.output
+        assert "claude" in result.output
         assert "anthropic-api" in result.output
         # Should explain when to use each
-        assert "Claude Code" in result.output or "CLI" in result.output
-        assert "API" in result.output
+        assert "decomposition" in result.output or "CLI" in result.output
 
     def test_run_help_documents_llm_model(self, runner):
         """Run help should document --llm-model option."""
@@ -426,7 +422,7 @@ class TestHelpDocumentation:
         assert ".swarm/config.json" in result.output
         # Help text now describes interactive prompts instead of config format
         assert "Worktree backend" in result.output
-        assert "LLM backend" in result.output
+        assert "CLI Tool" in result.output or "cli_tool" in result.output.lower()
 
 
 class TestConfigCommand:
@@ -454,10 +450,10 @@ class TestConfigCommand:
             # Should show all config keys
             assert "worktree_backend" in result.output or "worktree-backend" in result.output
             assert "agent_backend" in result.output or "agent-backend" in result.output
-            assert "llm_backend" in result.output or "llm-backend" in result.output
+            assert "cli_tool" in result.output or "cli-tool" in result.output
             # Should show current values
             assert "schaltwerk" in result.output
-            assert "claude-cli" in result.output
+            assert "claude" in result.output
 
     def test_config_show_fails_without_init(self, runner, temp_project):
         """'swarm config show' should fail gracefully if not initialized."""
@@ -474,14 +470,14 @@ class TestConfigCommand:
             # First initialize
             runner.invoke(main, ["init", "--non-interactive"])
 
-            # Change llm-backend to anthropic-api
-            result = runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+            # Change cli-tool to anthropic-api
+            result = runner.invoke(main, ["config", "set", "cli-tool", "anthropic-api"])
 
             assert result.exit_code == 0
 
             # Verify change persisted
             config = json.loads(Path(".swarm/config.json").read_text())
-            assert config["llm_backend"] == "anthropic-api"
+            assert config["cli_tool"] == "anthropic-api"
 
     def test_config_set_rejects_invalid_value(self, runner, temp_project):
         """'swarm config set' should reject invalid values with helpful error."""
@@ -489,11 +485,11 @@ class TestConfigCommand:
             # First initialize
             runner.invoke(main, ["init", "--non-interactive"])
 
-            result = runner.invoke(main, ["config", "set", "llm-backend", "invalid-backend"])
+            result = runner.invoke(main, ["config", "set", "cli-tool", "invalid-backend"])
 
             assert result.exit_code != 0
             # Should list valid options
-            assert "claude-cli" in result.output
+            assert "claude" in result.output
             assert "anthropic-api" in result.output
 
     def test_config_set_rejects_invalid_key(self, runner, temp_project):
@@ -511,7 +507,7 @@ class TestConfigCommand:
     def test_config_set_fails_without_init(self, runner, temp_project):
         """'swarm config set' should fail gracefully if not initialized."""
         with runner.isolated_filesystem(temp_dir=temp_project):
-            result = runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+            result = runner.invoke(main, ["config", "set", "cli-tool", "anthropic-api"])
 
             assert result.exit_code != 0
             # Should suggest running init
@@ -524,7 +520,7 @@ class TestConfigCommand:
             runner.invoke(main, ["init", "--non-interactive"])
 
             # Change value
-            runner.invoke(main, ["config", "set", "llm-backend", "anthropic-api"])
+            runner.invoke(main, ["config", "set", "cli-tool", "anthropic-api"])
 
             # Verify change is reflected in show
             result = runner.invoke(main, ["config", "show"])
@@ -541,8 +537,8 @@ class TestConfigCommand:
             result = runner.invoke(main, ["config", "show"])
 
             assert result.exit_code == 0
-            # Should show valid options for llm-backend
-            assert "claude-cli" in result.output
+            # Should show valid options for cli-tool
+            assert "claude" in result.output
             assert "anthropic-api" in result.output
 
     def test_config_set_llm_model(self, runner, temp_project):
