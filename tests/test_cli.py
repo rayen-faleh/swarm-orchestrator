@@ -406,6 +406,14 @@ class TestHelpDocumentation:
         assert "--llm-model" in result.output
         assert "anthropic-api" in result.output
 
+    def test_run_help_documents_exploration_model(self, runner):
+        """Run help should document --exploration-model option."""
+        result = runner.invoke(main, ["run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--exploration-model" in result.output
+        assert "exploration" in result.output.lower()
+
     def test_run_help_documents_config_file(self, runner):
         """Run help should document config file option."""
         result = runner.invoke(main, ["run", "--help"])
@@ -594,6 +602,32 @@ class TestConfigCommand:
             # Should show cli-tool in the output
             assert "cli-tool" in result.output or "cli_tool" in result.output
             assert "claude" in result.output
+
+    def test_config_set_exploration_model(self, runner, temp_project):
+        """'swarm config set' should allow setting exploration-model."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "set", "exploration-model", "claude-sonnet-4-20250514"])
+
+            assert result.exit_code == 0
+
+            # Verify change persisted
+            config = json.loads(Path(".swarm/config.json").read_text())
+            assert config["exploration_model"] == "claude-sonnet-4-20250514"
+
+    def test_config_show_displays_exploration_model(self, runner, temp_project):
+        """'swarm config show' should display exploration-model setting."""
+        with runner.isolated_filesystem(temp_dir=temp_project):
+            # First initialize
+            runner.invoke(main, ["init", "--non-interactive"])
+
+            result = runner.invoke(main, ["config", "show"])
+
+            assert result.exit_code == 0
+            # Should show exploration-model in the output
+            assert "exploration-model" in result.output or "exploration_model" in result.output
 
 
 class TestCursorCommands:

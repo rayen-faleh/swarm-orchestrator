@@ -217,6 +217,11 @@ def main():
     default=None,
     help="Model for anthropic-api backend (default: claude-sonnet-4-20250514). Ignored with other cli_tools.",
 )
+@click.option(
+    "--exploration-model",
+    default=None,
+    help="Model for exploration phase (default: claude-haiku-3-5). Uses a smaller model for cost efficiency.",
+)
 def run(
     query: str,
     agents: int,
@@ -228,6 +233,7 @@ def run(
     agent_backend: str | None,
     cli_tool: str | None,
     llm_model: str | None,
+    exploration_model: str | None,
 ):
     """Run a task through the multi-agent consensus system.
 
@@ -263,6 +269,8 @@ def run(
             swarm_config.cli_tool = cli_tool
         if llm_model:
             swarm_config.llm_model = llm_model
+        if exploration_model:
+            swarm_config.exploration_model = exploration_model
 
         orchestrator = Orchestrator(
             agent_count=agents,
