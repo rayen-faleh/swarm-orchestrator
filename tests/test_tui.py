@@ -385,7 +385,7 @@ class TestSessionsDashboard:
         help_panel = dashboard._render_help()
 
         # Render to a string to verify content
-        console = Console(file=StringIO(), force_terminal=True, width=80)
+        console = Console(file=StringIO(), force_terminal=True, width=100)
         console.print(help_panel)
         output = console.file.getvalue()
 
@@ -394,7 +394,7 @@ class TestSessionsDashboard:
         assert "nav" in output
         assert "d" in output
         assert "diff" in output
-        assert "h/l" in output
+        assert "PgUp/PgDn" in output
         assert "scroll" in output
         assert "m" in output
         assert "merge" in output
@@ -544,6 +544,77 @@ class TestSessionsDashboard:
 
         # Line 199 should be visible when scrolled
         assert "longline-00199" in output
+
+    def test_footer_visible_with_many_sessions(self, mock_backend):
+        """Footer should remain visible with many sessions in a small terminal."""
+        from rich.console import Console
+        from io import StringIO
+
+        # Create 50 sessions to ensure content would exceed screen
+        sessions = [
+            SessionInfo(name=f"session-{i:02d}", status="running", branch=f"branch-{i}")
+            for i in range(50)
+        ]
+        mock_backend.list_sessions.return_value = sessions
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+
+        panel = dashboard.render()
+
+        # Render with small terminal height (only 15 lines)
+        console = Console(file=StringIO(), force_terminal=True, width=80, height=15)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Footer help keys should be visible
+        assert "j/k" in output or "nav" in output
+        assert "quit" in output or "q" in output
+
+    def test_footer_visible_with_large_diff(self, mock_backend):
+        """Footer should remain visible with large diff content."""
+        from rich.console import Console
+        from io import StringIO
+
+        mock_backend.list_sessions.return_value = [
+            SessionInfo(name="test-session", status="running", branch="test-branch"),
+        ]
+        # Create large diff content (500 lines)
+        lines = [f"diff-line-{i}" for i in range(500)]
+        mock_backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py", "src/bar.py", "src/baz.py"],
+            content="\n".join(lines),
+        )
+
+        dashboard = SessionsDashboard(backend=mock_backend)
+        dashboard.refresh_sessions()
+        dashboard.show_diff = True
+        dashboard.current_diff = mock_backend.get_diff.return_value
+
+        panel = dashboard.render()
+
+        # Render with small terminal (height 20)
+        console = Console(file=StringIO(), force_terminal=True, width=80, height=20)
+        console.print(panel)
+        output = console.file.getvalue()
+
+        # Footer should still be visible
+        assert "j/k" in output or "nav" in output
+
+    def test_footer_shows_scroll_hints(self, dashboard):
+        """Footer should include PgUp/PgDn scroll hints."""
+        from rich.console import Console
+        from io import StringIO
+
+        dashboard.refresh_sessions()
+        help_panel = dashboard._render_help()
+
+        console = Console(file=StringIO(), force_terminal=True, width=100)
+        console.print(help_panel)
+        output = console.file.getvalue()
+
+        # Should have PgUp/PgDn hints (indicating scroll navigation)
+        assert "PgUp/PgDn" in output
+        assert "scroll" in output
 
 
 class TestWatchCommand:

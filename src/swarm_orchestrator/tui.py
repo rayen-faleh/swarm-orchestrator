@@ -203,19 +203,20 @@ class SessionsDashboard:
         """Render the dashboard as a Rich renderable."""
         layout = Layout()
 
-        # Help panel needs minimum 3 rows: 1 top border + 1 content + 1 bottom border
-        # Use minimum_size to allow growth but never truncate
+        # Footer uses size=3 (fixed) so it's always visible.
+        # Sessions/diff use ratio-based sizing to fill remaining space.
+        # Rich's Layout shrinks ratio-based sections first, preserving fixed-size footer.
         if self.show_diff and self.current_diff:
             layout.split_column(
-                Layout(name="sessions", ratio=1),
-                Layout(name="diff", ratio=2),
-                Layout(name="help", size=3, minimum_size=3),
+                Layout(name="sessions", ratio=1, minimum_size=3),
+                Layout(name="diff", ratio=2, minimum_size=3),
+                Layout(name="help", size=3),
             )
             layout["diff"].update(self._render_diff())
         else:
             layout.split_column(
-                Layout(name="sessions", ratio=1),
-                Layout(name="help", size=3, minimum_size=3),
+                Layout(name="sessions", ratio=1, minimum_size=3),
+                Layout(name="help", size=3),
             )
 
         layout["sessions"].update(self._render_sessions_table())
@@ -301,12 +302,12 @@ class SessionsDashboard:
             return Panel(Text(content), title=title)
 
     def _render_help(self) -> Panel:
-        """Render the help panel."""
+        """Render the help panel with scroll hints."""
         help_text = Text()
         keys = [
             ("j/k", "nav"),
             ("d", "diff"),
-            ("h/l", "scroll"),
+            ("PgUp/PgDn", "scroll"),
             ("m", "merge"),
             ("x", "del"),
             ("r", "refresh"),
