@@ -5,6 +5,7 @@ Provides a Rich Live-based TUI showing sessions table with status,
 keyboard navigation, and actions (diff, merge, quit).
 """
 
+import re
 import sys
 from rich.console import Console
 from rich.live import Live
@@ -141,6 +142,38 @@ class SessionsDashboard:
             return
         max_offset = max(0, len(self.sessions) - 1)
         self.sessions_scroll_offset = max(0, min(max_offset, self.sessions_scroll_offset + delta))
+
+    def _enable_mouse_tracking_seq(self) -> str:
+        """Return escape sequence to enable mouse tracking (SGR mode)."""
+        return "\x1b[?1000h\x1b[?1006h"
+
+    def _disable_mouse_tracking_seq(self) -> str:
+        """Return escape sequence to disable mouse tracking."""
+        return "\x1b[?1000l\x1b[?1006l"
+
+    def _parse_mouse_event(self, seq: str) -> dict | None:
+        """Parse SGR mouse event sequence and return event dict or None.
+
+        SGR format: < button ; x ; y M (press) or m (release)
+        Button 64 = scroll wheel up, Button 65 = scroll wheel down
+        """
+        match = re.match(r"<(\d+);(\d+);(\d+)[Mm]", seq)
+        if not match:
+            return None
+        button = int(match.group(1))
+        if button == 64:
+            return {"button": button, "action": "scroll_up"}
+        elif button == 65:
+            return {"button": button, "action": "scroll_down"}
+        return None
+
+    def _handle_mouse_scroll(self, direction: str) -> None:
+        """Handle mouse scroll event by routing to appropriate scroll method."""
+        delta = -3 if direction == "up" else 3
+        if self.show_diff and self.current_diff:
+            self._scroll_diff(delta)
+        else:
+            self._scroll_sessions(delta)
 
     def _merge_selected(self) -> None:
         """Merge the selected session."""
@@ -334,6 +367,10 @@ class SessionsDashboard:
                 old_settings = termios.tcgetattr(sys.stdin)
                 try:
                     tty.setcbreak(sys.stdin.fileno())
+                    # Enable mouse tracking
+                    sys.stdout.write(self._enable_mouse_tracking_seq())
+                    sys.stdout.flush()
+
                     while self.running:
                         # Check for input with timeout
                         if select.select([sys.stdin], [], [], 0.25)[0]:
@@ -345,10 +382,29 @@ class SessionsDashboard:
                                         key = "up"
                                     elif seq == "[B":
                                         key = "down"
-                            self.handle_input(key)
+                                    elif seq == "[<":
+                                        # SGR mouse event: read until M or m
+                                        mouse_seq = "<"
+                                        while True:
+                                            if select.select([sys.stdin], [], [], 0.1)[0]:
+                                                c = sys.stdin.read(1)
+                                                mouse_seq += c
+                                                if c in "Mm":
+                                                    break
+                                            else:
+                                                break
+                                        event = self._parse_mouse_event(mouse_seq)
+                                        if event:
+                                            self._handle_mouse_scroll(event["action"].replace("scroll_", ""))
+                                        key = None  # Don't process as regular key
+                            if key:
+                                self.handle_input(key)
                             self.status_message = ""  # Clear after any action
                         live.update(self.render())
                 finally:
+                    # Disable mouse tracking
+                    sys.stdout.write(self._disable_mouse_tracking_seq())
+                    sys.stdout.flush()
                     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
         except KeyboardInterrupt:
             pass

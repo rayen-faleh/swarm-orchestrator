@@ -660,3 +660,89 @@ class TestWatchCommand:
                 agent_backend=mock_agent_backend,
             )
             mock_dashboard.run.assert_called_once()
+
+
+class TestMouseScrollSupport:
+    """Tests for mouse wheel scroll support."""
+
+    @pytest.fixture
+    def mock_backend(self):
+        """Create a mock worktree backend."""
+        backend = MagicMock()
+        backend.list_sessions.return_value = [
+            SessionInfo(name="task-agent-0", status="running", branch="git-native/task-agent-0"),
+            SessionInfo(name="task-agent-1", status="reviewed", branch="git-native/task-agent-1"),
+        ]
+        backend.get_diff.return_value = DiffResult(
+            files=["src/foo.py"],
+            content="\n".join([f"line {i}" for i in range(50)]),
+        )
+        return backend
+
+    @pytest.fixture
+    def dashboard(self, mock_backend):
+        """Create a dashboard instance with mocked backend."""
+        return SessionsDashboard(backend=mock_backend)
+
+    def test_parse_mouse_event_scroll_up(self, dashboard):
+        """Should parse SGR scroll wheel up event (button 64)."""
+        # SGR format: CSI < button ; x ; y M
+        # Button 64 = scroll up
+        event = dashboard._parse_mouse_event("<64;10;5M")
+        assert event is not None
+        assert event["button"] == 64
+        assert event["action"] == "scroll_up"
+
+    def test_parse_mouse_event_scroll_down(self, dashboard):
+        """Should parse SGR scroll wheel down event (button 65)."""
+        # Button 65 = scroll down
+        event = dashboard._parse_mouse_event("<65;10;5M")
+        assert event is not None
+        assert event["button"] == 65
+        assert event["action"] == "scroll_down"
+
+    def test_parse_mouse_event_invalid(self, dashboard):
+        """Should return None for invalid mouse event."""
+        assert dashboard._parse_mouse_event("invalid") is None
+        assert dashboard._parse_mouse_event("<1;10;5M") is None  # Regular click, not scroll
+        assert dashboard._parse_mouse_event("") is None
+
+    def test_handle_mouse_scroll_up_no_diff(self, dashboard):
+        """Scroll up without diff visible should scroll sessions list."""
+        dashboard.refresh_sessions()
+        dashboard.sessions_scroll_offset = 5
+        dashboard.show_diff = False
+        dashboard._handle_mouse_scroll("up")
+        assert dashboard.sessions_scroll_offset < 5
+
+    def test_handle_mouse_scroll_down_no_diff(self, dashboard):
+        """Scroll down without diff visible should scroll sessions list."""
+        dashboard.refresh_sessions()
+        dashboard.sessions_scroll_offset = 0
+        dashboard.show_diff = False
+        dashboard._handle_mouse_scroll("down")
+        # Will be clamped since we only have 2 sessions
+        assert dashboard.sessions_scroll_offset >= 0
+
+    def test_handle_mouse_scroll_up_with_diff(self, dashboard, mock_backend):
+        """Scroll up with diff visible should scroll diff panel."""
+        dashboard.refresh_sessions()
+        dashboard.show_diff = True
+        dashboard.current_diff = mock_backend.get_diff.return_value
+        dashboard.diff_scroll_offset = 20
+        dashboard._handle_mouse_scroll("up")
+        assert dashboard.diff_scroll_offset < 20
+
+    def test_handle_mouse_scroll_down_with_diff(self, dashboard, mock_backend):
+        """Scroll down with diff visible should scroll diff panel."""
+        dashboard.refresh_sessions()
+        dashboard.show_diff = True
+        dashboard.current_diff = mock_backend.get_diff.return_value
+        dashboard.diff_scroll_offset = 0
+        dashboard._handle_mouse_scroll("down")
+        assert dashboard.diff_scroll_offset > 0
+
+    def test_mouse_tracking_escape_sequences(self, dashboard):
+        """Should have correct escape sequences for mouse tracking."""
+        assert dashboard._enable_mouse_tracking_seq() == "\x1b[?1000h\x1b[?1006h"
+        assert dashboard._disable_mouse_tracking_seq() == "\x1b[?1000l\x1b[?1006l"
