@@ -11,7 +11,7 @@ Research-backed task decomposition based on:
 - SWE-bench: Real-world software patch statistics
 """
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 from .decomposer import (
     Subtask,
